@@ -21,6 +21,10 @@ const SelectContextSection = () => {
     router.push(`/context/${videoDetails?.data}`);
   }
 
+  if (videoDetails?.error) {
+    console.log(videoDetails?.error);
+  }
+
   const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setYoutubeDetails((state) => ({
       ...state,
