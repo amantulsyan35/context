@@ -7,11 +7,6 @@ import CustomVideoPlayer from '../../../components/custom-video-player';
 
 const generator = rough.generator();
 
-function createElement(x1: number, y1: number, x2: number, y2: number) {
-  const roughElement = generator.line(x1, y1, x2, y2);
-  return { x1, y1, x2, y2, roughElement };
-}
-
 type elementType = {
   x1: number;
   y1: number;
@@ -58,34 +53,32 @@ const VideoPage = () => {
       canvas.setAttribute('width', (style_width * dpi).toString());
 
       if (context) {
-        const roughCanvas = rough.canvas(canvas);
-        roughCanvas.height = window.innerHeight * 2;
-        roughCanvas.width = window.innerWidth * 2;
-
-        elements.forEach(({ roughElement }) => roughCanvas.draw(roughElement));
+        // const roughCanvas = rough.canvas(canvas);
+        // elements.forEach(({ roughElement }) => roughCanvas.draw(roughElement));
       }
     }
   }, [elements]);
 
+  function computePointInCanvas(clientX: any, clientY: any) {
+    if (canvasRef.current) {
+      const boundingRect = canvasRef.current?.getBoundingClientRect();
+
+      return {
+        x: clientX - boundingRect?.left,
+        y: clientY - boundingRect?.top,
+      };
+    }
+    return null;
+  }
+
   const handleMouseDown = (event: any) => {
     setDrawing(true);
-
-    const { clientX, clientY } = event;
-
-    const element = createElement(clientX, clientY, clientX, clientY);
-    setElements((state) => [...state, element]);
+    //
   };
 
   const handleMouseMove = (event: any) => {
     if (!drawing) return;
-    const { clientX, clientY } = event;
-    const index = elements.length - 1;
-    const { x1, y1 } = elements[index];
-    const updatedElement = createElement(x1, y1, clientX, clientY);
-
-    const elementsCopy = [...elements];
-    elementsCopy[index] = updatedElement;
-    setElements(elementsCopy);
+    //
   };
 
   const handleMouseUp = () => {

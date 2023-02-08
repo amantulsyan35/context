@@ -12,7 +12,7 @@ datasource db {
 
 
 model YoutubeVideoDetails {
-    id   String @id
+  id   String @id
   youtubeLink String
   updatedAt DateTime @updatedAt
   startTime Int

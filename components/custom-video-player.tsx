@@ -72,6 +72,8 @@ const CustomVideoPlayer = ({ videoData }: CustomVideoPlayerProps) => {
         muted={false}
         playing={playing}
         volume={volume}
+        loop={true}
+        onEnded={() => setState({ ...state, playing: false })}
         onProgress={(e) => setSeekPosition(e.playedSeconds)}
         played={played * 100}
         config={{
