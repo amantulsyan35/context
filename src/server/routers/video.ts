@@ -25,9 +25,15 @@ export const videoRouter = router({
         youtubeLink: z.string(),
         startTime: z.number(),
         endTime: z.number(),
+        canvasState: z
+          .object({
+            excalidrawState: z.record(z.any()).array(),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ input }) => {
+      console.log(input);
       const dataBaseId = uuidv4();
       await prisma.youtubeVideoDetails.create({
         data: { id: dataBaseId, ...input },

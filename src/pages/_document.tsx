@@ -18,6 +18,10 @@ export default function Document() {
         />
         <meta property='og:image:height' content='630' />
         <meta property='og:image:width' content='1200' />
+        <meta
+          property='og:video'
+          content='https://www.youtube.com/v/BQBjVr1iHH4'
+        />
 
         {/* Twitter Meta Tags  */}
         <meta name='twitter:card' content='summary_large_image' />

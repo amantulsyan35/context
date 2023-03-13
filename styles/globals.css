@@ -10,3 +10,19 @@
     src: url('/fonts/BOOK.otf');
   }
 }
+
+.excalidraw .dropdown-menu-button {
+  display: none !important;
+}
+
+.excalidraw .library-button {
+  display: none !important;
+}
+
+.excalidraw .help-icon {
+  display: none !important;
+}
+
+.excalidraw .context-menu {
+  display: none !important;
+}

@@ -5,3 +5,5 @@ export const youtubeDetailsAtom = atom({
   startTime: 0,
   endTime: 0,
 });
+
+export const excalidrawStateAtom = atom([]);

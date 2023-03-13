@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAtom } from 'jotai';
 import Draggable from 'react-draggable';
 import Loading from '../../../components/loading';
 import { GoBackButton } from '../../../components/button';
+import { excalidrawStateAtom } from '../../../atoms/video-atoms';
 import { pageAtom, Page } from '../../../atoms/page-atoms';
 import YoutubeLinkSection from '../../../components/youtube-link-section';
 import SelectContextSection from '../../../components/select-context-selection';
@@ -11,6 +12,7 @@ import SelectContextSection from '../../../components/select-context-selection';
 const NewContext = () => {
   const router = useRouter();
   const [page, setPage] = useAtom(pageAtom);
+  const [excalidrawState, setExcalidrawState] = useAtom(excalidrawStateAtom);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -29,6 +31,15 @@ const NewContext = () => {
       router.events.off('routeChangeError', handleComplete);
     };
   });
+
+  // EXCALIDRAW CLIENT LOGIC
+
+  const [Excalidraw, setExcalidraw] = useState<null | any>(null);
+  useEffect(() => {
+    import('@excalidraw/excalidraw').then((comp) =>
+      setExcalidraw(comp.Excalidraw)
+    );
+  }, []);
 
   const handleBack = () => {
     setPage(Page.youtubeLink);
@@ -50,25 +61,31 @@ const NewContext = () => {
     return (
       <main className='relative flex justify-center items-center'>
         <section className='h-[25rem] w-full overflow-y-scroll flex  gap-4 flex-wrap justify-center p-4 bg-[#C2262E]'></section>
-        <Draggable>
-          <div className='h-[30rem] cursor-pointer w-[50rem] absolute -bottom-[15rem]  bg-slate-50 rounded-md shadow-md flex flex-col items-center justify-center p-4 gap-8'>
-            <YoutubeLinkSection />
-          </div>
-        </Draggable>
+        <div className='h-[30rem] cursor-pointer w-[50rem] absolute -bottom-[15rem]  bg-slate-50 rounded-md shadow-md flex flex-col items-center justify-center p-4 gap-8'>
+          <YoutubeLinkSection />
+        </div>
       </main>
     );
   }
 
   if (page === Page.generateContext) {
+    const handleExcalidrawChange = (e: any) => {
+      setExcalidrawState(e);
+    };
+
     return (
-      <main className='relative flex justify-center items-center'>
-        <section className='h-[25rem] w-full overflow-y-scroll flex gap-4 flex-wrap justify-center p-4 bg-[#C2262E]'></section>
-        <Draggable>
-          <div className='h-[30rem] cursor-pointer w-[50rem] absolute -bottom-[15rem]  bg-slate-50 rounded-md shadow-md flex flex-col items-center justify-center p-4 gap-8'>
-            <GoBackButton handleBack={handleBack} />
-            <SelectContextSection />
-          </div>
-        </Draggable>
+      <main>
+        <div className=' h-[30rem] flex flex-col items-center justify-center relative'>
+          {Excalidraw && (
+            <Excalidraw theme='dark' onChange={handleExcalidrawChange} />
+          )}
+          <Draggable>
+            <div className='h-[30rem] w-[50rem] absolute -bottom-1/2 bg-slate-50 rounded-md shadow-md flex flex-col items-center justify-center p-4 gap-8 cursor-pointer z-10'>
+              <GoBackButton handleBack={handleBack} />
+              <SelectContextSection />
+            </div>
+          </Draggable>
+        </div>
       </main>
     );
   }

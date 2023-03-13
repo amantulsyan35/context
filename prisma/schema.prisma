@@ -17,4 +17,5 @@ model YoutubeVideoDetails {
   updatedAt DateTime @updatedAt
   startTime Int
   endTime Int
+  canvasState Json?
 }

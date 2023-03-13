@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { trpc } from '../utils/trpc';
+import { excalidrawStateAtom } from '../atoms/video-atoms';
 import { useAtom } from 'jotai';
 import { youtubeDetailsAtom } from '../atoms/video-atoms';
 
 const SelectContextSection = () => {
   const router = useRouter();
   const [youtubeDetails, setYoutubeDetails] = useAtom(youtubeDetailsAtom);
+  const [excalidrawState] = useAtom(excalidrawStateAtom);
   const videoDetails = trpc.video.saveVideoDetails.useMutation();
 
   const handleGenerate = async () => {
@@ -14,6 +16,13 @@ const SelectContextSection = () => {
       youtubeLink: youtubeDetails?.youtubeLink,
       startTime: Number(youtubeDetails?.startTime),
       endTime: Number(youtubeDetails?.endTime),
+      canvasState: { excalidrawState },
+    });
+    console.log({
+      youtubeLink: youtubeDetails?.youtubeLink,
+      startTime: Number(youtubeDetails?.startTime),
+      endTime: Number(youtubeDetails?.endTime),
+      canvasState: { excalidrawState },
     });
   };
 
@@ -33,7 +42,7 @@ const SelectContextSection = () => {
   };
 
   return (
-    <>
+    <React.Fragment>
       <h1 className='font-Book text-6xl'>Select Context</h1>
       <div className='flex gap-4'>
         <label className='w-3/4 flex flex-col gap-[5px] '>
@@ -69,7 +78,7 @@ const SelectContextSection = () => {
       >
         Generate
       </button>
-    </>
+    </React.Fragment>
   );
 };
 
