@@ -28,7 +28,7 @@ export default function Document() {
         <meta property='twitter:domain' content='context-gamma.vercel.app' />
         <meta
           property='twitter:url'
-          content='https://context-gamma.vercel.app/'
+          content='https://www.youtube.com/live/taWdpJmaQZA?feature=share'
         />
         <meta name='twitter:title' content='Context' />
         <meta
