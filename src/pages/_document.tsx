@@ -26,10 +26,13 @@ export default function Document() {
         {/* Twitter Meta Tags  */}
         <meta name='twitter:card' content='summary_large_image' />
         <meta property='twitter:domain' content='context-gamma.vercel.app' />
-        <meta
+        <meta name='twitter:player' content='https://wakey.io/embed/26' />
+        <meta name='twitter:player:width' content='720' />
+        <meta name='twitter:player:height' content='720' />
+        {/* <meta
           property='twitter:url'
           content='https://www.youtube.com/live/taWdpJmaQZA?feature=share'
-        />
+        /> */}
         <meta name='twitter:title' content='Context' />
         <meta
           name='twitter:description'
