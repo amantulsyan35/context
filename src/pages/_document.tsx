@@ -24,15 +24,19 @@ export default function Document() {
         />
 
         {/* Twitter Meta Tags  */}
-        <meta name='twitter:card' content='summary_large_image' />
+
+        <meta name='twitter:card' content='player' />
         <meta property='twitter:domain' content='context-gamma.vercel.app' />
-        <meta name='twitter:player' content='https://wakey.io/embed/26' />
+        <meta
+          name='twitter:player'
+          content='https://www.youtube.com/v/BQBjVr1iHH4'
+        />
         <meta name='twitter:player:width' content='720' />
         <meta name='twitter:player:height' content='720' />
-        {/* <meta
+        <meta
           property='twitter:url'
           content='https://www.youtube.com/live/taWdpJmaQZA?feature=share'
-        /> */}
+        />
         <meta name='twitter:title' content='Context' />
         <meta
           name='twitter:description'
@@ -42,6 +46,22 @@ export default function Document() {
           name='twitter:image'
           content='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSqjy8ZRHjNBs1EgrDGihwNV03homRyqVVPLQ&usqp=CAU'
         />
+
+        {/* <meta name='twitter:card' content='player' />
+        <meta property='twitter:domain' content='context-gamma.vercel.app' />
+        <meta name='twitter:title' content='Context' />
+        <meta
+          property='twitter:url'
+          content='https://www.youtube.com/v/BQBjVr1iHH4'
+        />
+        <meta
+          name='twitter:description'
+          content='context is the key to narrative storytelling'
+        />
+        <meta
+          name='twitter:image'
+          content='https://www.youtube.com/v/BQBjVr1iHH4'
+        /> */}
       </Head>
       <body>
         <Main />
