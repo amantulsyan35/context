@@ -11,27 +11,27 @@
 // Import Routes
 
 import { Route as rootRoute } from './routes/__root'
-import { Route as SearchImport } from './routes/search'
-import { Route as AboutImport } from './routes/about'
 import { Route as IndexImport } from './routes/index'
+import { Route as ContextNewImport } from './routes/context/new'
+import { Route as ContextVideoVideoIdImport } from './routes/context/video.$videoId'
 
 // Create/Update Routes
-
-const SearchRoute = SearchImport.update({
-  id: '/search',
-  path: '/search',
-  getParentRoute: () => rootRoute,
-} as any)
-
-const AboutRoute = AboutImport.update({
-  id: '/about',
-  path: '/about',
-  getParentRoute: () => rootRoute,
-} as any)
 
 const IndexRoute = IndexImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const ContextNewRoute = ContextNewImport.update({
+  id: '/context/new',
+  path: '/context/new',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const ContextVideoVideoIdRoute = ContextVideoVideoIdImport.update({
+  id: '/context/video/$videoId',
+  path: '/context/video/$videoId',
   getParentRoute: () => rootRoute,
 } as any)
 
@@ -46,18 +46,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexImport
       parentRoute: typeof rootRoute
     }
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutImport
+    '/context/new': {
+      id: '/context/new'
+      path: '/context/new'
+      fullPath: '/context/new'
+      preLoaderRoute: typeof ContextNewImport
       parentRoute: typeof rootRoute
     }
-    '/search': {
-      id: '/search'
-      path: '/search'
-      fullPath: '/search'
-      preLoaderRoute: typeof SearchImport
+    '/context/video/$videoId': {
+      id: '/context/video/$videoId'
+      path: '/context/video/$videoId'
+      fullPath: '/context/video/$videoId'
+      preLoaderRoute: typeof ContextVideoVideoIdImport
       parentRoute: typeof rootRoute
     }
   }
@@ -67,42 +67,42 @@ declare module '@tanstack/react-router' {
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/search': typeof SearchRoute
+  '/context/new': typeof ContextNewRoute
+  '/context/video/$videoId': typeof ContextVideoVideoIdRoute
 }
 
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/search': typeof SearchRoute
+  '/context/new': typeof ContextNewRoute
+  '/context/video/$videoId': typeof ContextVideoVideoIdRoute
 }
 
 export interface FileRoutesById {
   __root__: typeof rootRoute
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/search': typeof SearchRoute
+  '/context/new': typeof ContextNewRoute
+  '/context/video/$videoId': typeof ContextVideoVideoIdRoute
 }
 
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/search'
+  fullPaths: '/' | '/context/new' | '/context/video/$videoId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/search'
-  id: '__root__' | '/' | '/about' | '/search'
+  to: '/' | '/context/new' | '/context/video/$videoId'
+  id: '__root__' | '/' | '/context/new' | '/context/video/$videoId'
   fileRoutesById: FileRoutesById
 }
 
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AboutRoute: typeof AboutRoute
-  SearchRoute: typeof SearchRoute
+  ContextNewRoute: typeof ContextNewRoute
+  ContextVideoVideoIdRoute: typeof ContextVideoVideoIdRoute
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AboutRoute: AboutRoute,
-  SearchRoute: SearchRoute,
+  ContextNewRoute: ContextNewRoute,
+  ContextVideoVideoIdRoute: ContextVideoVideoIdRoute,
 }
 
 export const routeTree = rootRoute
@@ -116,18 +116,18 @@ export const routeTree = rootRoute
       "filePath": "__root.tsx",
       "children": [
         "/",
-        "/about",
-        "/search"
+        "/context/new",
+        "/context/video/$videoId"
       ]
     },
     "/": {
       "filePath": "index.tsx"
     },
-    "/about": {
-      "filePath": "about.tsx"
+    "/context/new": {
+      "filePath": "context/new.tsx"
     },
-    "/search": {
-      "filePath": "search.tsx"
+    "/context/video/$videoId": {
+      "filePath": "context/video.$videoId.tsx"
     }
   }
 }
