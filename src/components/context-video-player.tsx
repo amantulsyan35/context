@@ -77,7 +77,6 @@ const ContextVideoPlayer: React.FC<VideoPlayerProps> = ({ youtubeUrl, startTime,
         width='100%'
         height='100%'
         url={youtubeUrl}
-        muted={true}
         playing={playing}
         fullscreen={true}
         onPlay={() => setPlaying(true)}
