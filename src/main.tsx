@@ -4,6 +4,11 @@ import ReactDOM from 'react-dom/client';
 import { RouterProvider, createRoute, createRouter } from '@tanstack/react-router';
 import { ConvexProvider, ConvexReactClient } from 'convex/react';
 
+import { RootRoute } from './routes/__root';
+import { Index } from './routes';
+import { NewContext } from './routes/new';
+import VideoPage from './routes/video/$videoId';
+
 const indexRoute = createRoute({
   getParentRoute: () => RootRoute,
   path: '/',
@@ -12,20 +17,15 @@ const indexRoute = createRoute({
 
 const newContextRoute = createRoute({
   getParentRoute: () => RootRoute,
-  path: '/context/new',
+  path: '/new',
   component: NewContext,
 });
 
 const contextVideoRoute = createRoute({
   getParentRoute: () => RootRoute,
-  path: '/context/video/$videoId',
+  path: '/video/$videoId',
   component: VideoPage,
 });
-
-import { RootRoute } from './routes/__root';
-import { Index } from './routes';
-import { NewContext } from './routes/context/new';
-import VideoPage from './routes/context/video.$videoId';
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 

@@ -62,6 +62,22 @@ const ContextVideoPlayer: React.FC<VideoPlayerProps> = ({ youtubeUrl, startTime,
     setPlaying((p) => !p);
   };
 
+  const handleSeek = (seconds: number) => {
+    if (seconds < startTime || seconds > endTime) {
+      playerRef.current?.seekTo(startTime, 'seconds');
+      setCurrentSeconds(startTime);
+    } else {
+      setCurrentSeconds(seconds);
+    }
+  };
+
+  const handleEnded = () => {
+    setPlaying(false);
+    // if you wanted to loop, you could:
+    // playerRef.current?.seekTo(startTime, 'seconds');
+    // setPlaying(true);
+  };
+
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
@@ -78,6 +94,10 @@ const ContextVideoPlayer: React.FC<VideoPlayerProps> = ({ youtubeUrl, startTime,
         height='100%'
         url={youtubeUrl}
         playing={playing}
+        controls={false}
+        onEnded={handleEnded}
+        onSeek={handleSeek}
+        progressInterval={100}
         fullscreen={true}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
@@ -146,7 +166,7 @@ const ContextVideoPlayer: React.FC<VideoPlayerProps> = ({ youtubeUrl, startTime,
           value={[Math.min(Math.max(currentSeconds - startTime, 0), clipDuration)]}
           onValueChange={([offset]) => {
             const newTime = startTime + offset;
-            setCurrentSeconds(newTime);
+            handleSeek(newTime); // clamp and update state
             playerRef.current?.seekTo(newTime, 'seconds');
           }}
           className='w-full [&_[data-slot=slider-thumb]]:hidden rounded-full'

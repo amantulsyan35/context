@@ -22,7 +22,7 @@ export function VideoList() {
           : 'https://linear.app/static/og/homepage-2024.jpg';
 
         return (
-          <Link to='/context/video/$videoId' params={{ videoId: video._id }} className='block'>
+          <Link to='/video/$videoId' params={{ videoId: video._id }} className='block'>
             <VideoCard image={thumbnailUrl} imageAlt={video?.title} title={video?.title || ''} />
           </Link>
         );
