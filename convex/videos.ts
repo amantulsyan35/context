@@ -15,3 +15,7 @@ export const getVideoById = query({
     return video;
   },
 });
+
+export const getVideosCount = query(async ({ db }) => {
+  return (await db.query('videos').collect()).length;
+});

@@ -30,7 +30,7 @@ export function NewContext() {
 
       if (id) {
         navigate({
-          to: `/context/video/${id}`,
+          to: `/video/${id}`,
           params: {
             videoId: id,
           },
@@ -111,6 +111,7 @@ export function NewContext() {
           </div>
         </label>
         <Button
+          disabled={form.state.isSubmitting}
           onClick={() => {
             form.handleSubmit();
           }}
