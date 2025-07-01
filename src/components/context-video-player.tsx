@@ -89,7 +89,7 @@ const ContextVideoPlayer: React.FC<VideoPlayerProps> = ({ youtubeUrl, startTime,
       <ReactPlayer
         ref={playerRef}
         id='video-player-wrapper'
-        className='absolute top-0 left-0'
+        // className='absolute top-0 left-0'
         width='100%'
         height='100%'
         url={youtubeUrl}
@@ -117,9 +117,9 @@ const ContextVideoPlayer: React.FC<VideoPlayerProps> = ({ youtubeUrl, startTime,
         }}
       />
 
-      <div className='absolute bottom-0 left-0 right-0 p-2 flex flex-col gap-2 z-10'>
-        <div className='flex items-center justify-between gap-2'>
-          <div className='flex items-center gap-1'>
+      <div className='absolute bottom-0 left-0 right-0 p-2 sm:p-4 flex flex-col gap-2 z-10'>
+        <div className='flex items-center justify-between gap-2 sm:gap-4'>
+          <div className='flex items-center gap-1 sm:gap-2'>
             <Button variant='secondary' size='sm' onClick={handlePlayPause} className='text-white'>
               {playing ? (
                 <PauseIcon className='size-4 text-primary' />
@@ -128,8 +128,8 @@ const ContextVideoPlayer: React.FC<VideoPlayerProps> = ({ youtubeUrl, startTime,
               )}
             </Button>
 
-            <div className=' bg-primary-foreground rounded-full px-4 py-2'>
-              <p className='text-primary text-sm'>
+            <div className='bg-primary-foreground rounded-full px-3 sm:px-4 py-1 sm:py-2'>
+              <p className='text-primary text-xs sm:text-sm'>
                 {formatTime(Math.max(currentSeconds - startTime, 0))} / {formatTime(clipDuration)}
               </p>
             </div>
@@ -140,7 +140,10 @@ const ContextVideoPlayer: React.FC<VideoPlayerProps> = ({ youtubeUrl, startTime,
               value={playbackRate.toString()}
               onValueChange={(val) => setPlaybackRate(parseFloat(val))}
             >
-              <SelectTrigger size='sm' className='bg-primary-foreground text-primary text-sm'>
+              <SelectTrigger
+                size='sm'
+                className='bg-primary-foreground text-primary text-xs sm:text-sm'
+              >
                 <SelectValue placeholder={`${playbackRate}×`} />
               </SelectTrigger>
 
@@ -166,7 +169,7 @@ const ContextVideoPlayer: React.FC<VideoPlayerProps> = ({ youtubeUrl, startTime,
           value={[Math.min(Math.max(currentSeconds - startTime, 0), clipDuration)]}
           onValueChange={([offset]) => {
             const newTime = startTime + offset;
-            handleSeek(newTime); // clamp and update state
+            handleSeek(newTime);
             playerRef.current?.seekTo(newTime, 'seconds');
           }}
           className='w-full [&_[data-slot=slider-thumb]]:hidden rounded-full'

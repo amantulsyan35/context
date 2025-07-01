@@ -14,15 +14,15 @@ export function VideoPage() {
   });
 
   return (
-    <main className='flex items-center justify-center min-h-screen bg-[#FFF8E7]'>
+    <main className='flex items-center justify-center min-h-screen bg-[#FFF8E7] px-4 sm:px-6 lg:px-8'>
       <React.Suspense
         fallback={
-          <div className='relative w-full max-w-4xl aspect-video overflow-hidden flex items-center justify-center bg-[#111110] rounded-2xl'>
+          <div className='flex items-center justify-center relative w-full max-w-xs sm:max-w-md lg:max-w-2xl xl:max-w-4xl aspect-video rounded-2xl overflow-hidden shadow-lg'>
             <Loading />
           </div>
         }
       >
-        <div className='relative w-full max-w-lg sm:max-w-2xl lg:max-w-4xl aspect-video rounded-2xl overflow-hidden shadow-lg'>
+        <div className='relative w-full max-w-xs sm:max-w-md lg:max-w-2xl xl:max-w-4xl aspect-video rounded-2xl overflow-hidden shadow-lg'>
           <VideoPlayer videoId={videoId} />
         </div>
       </React.Suspense>
