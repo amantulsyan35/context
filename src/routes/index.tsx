@@ -12,9 +12,9 @@ export function Index() {
     <main className=' h-screen bg-[#0D0D0D] text-white'>
       <section className='flex flex-col items-start py-12 px-48 bg-[#111110]'>
         <div className='mt-32'>
-          <h1 className='text-6xl font-extralight font-inter mb-1'>Context</h1>
+          <h1 className='text-6xl font-extralight font-inter mb-1'>Self Atlas</h1>
           <p className='text-primary-foreground font-extralight font-inter text-md'>
-            Sharing Narratives.
+            Collection of narratives
           </p>
         </div>
       </section>
