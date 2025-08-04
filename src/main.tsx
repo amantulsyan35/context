@@ -8,6 +8,8 @@ import { RootRoute } from './routes/__root';
 import { Index } from './routes';
 import { NewContext } from './routes/new';
 import VideoPage from './routes/video/$videoId';
+import VideoIdPage from './routes/$videoId';
+import {V1} from './routes/v1';
 
 const indexRoute = createRoute({
   getParentRoute: () => RootRoute,
@@ -27,9 +29,21 @@ const contextVideoRoute = createRoute({
   component: VideoPage,
 });
 
+const VideoIdRoute = createRoute({
+  getParentRoute: () => RootRoute,
+  path: '/$videoId',
+  component: VideoIdPage,
+});
+
+const V1Route = createRoute({
+  getParentRoute: () => RootRoute,
+  path: '/v1',
+  component: V1,
+});
+
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 
-const routeTree = RootRoute.addChildren([indexRoute, newContextRoute, contextVideoRoute]);
+const routeTree = RootRoute.addChildren([indexRoute, newContextRoute, contextVideoRoute, VideoIdRoute, V1Route]);
 
 // Create a new router instance
 const router = createRouter({ routeTree });

@@ -1,4 +1,3 @@
-// VideoCardWrapper.tsx
 import { api } from '../../convex/_generated/api';
 import { useQuerySuspense } from '@/hooks/useSuspenseQuery';
 import VideoCard from '@/components/video-card';
