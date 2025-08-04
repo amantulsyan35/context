@@ -8,127 +8,127 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-// Import Routes
+import { createRootRoute } from '@tanstack/react-router'
 
-import { Route as rootRoute } from './routes/__root'
-import { Route as NewImport } from './routes/new'
-import { Route as IndexImport } from './routes/index'
-import { Route as VideoVideoIdImport } from './routes/video/$videoId'
+import { Route as V1RouteImport } from './routes/v1'
+import { Route as NewRouteImport } from './routes/new'
+import { Route as VideoIdRouteImport } from './routes/$videoId'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as VideoVideoIdRouteImport } from './routes/video/$videoId'
 
-// Create/Update Routes
+const rootRouteImport = createRootRoute()
 
-const NewRoute = NewImport.update({
+const V1Route = V1RouteImport.update({
+  id: '/v1',
+  path: '/v1',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NewRoute = NewRouteImport.update({
   id: '/new',
   path: '/new',
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => rootRouteImport,
 } as any)
-
-const IndexRoute = IndexImport.update({
+const VideoIdRoute = VideoIdRouteImport.update({
+  id: '/$videoId',
+  path: '/$videoId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => rootRouteImport,
 } as any)
-
-const VideoVideoIdRoute = VideoVideoIdImport.update({
+const VideoVideoIdRoute = VideoVideoIdRouteImport.update({
   id: '/video/$videoId',
   path: '/video/$videoId',
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => rootRouteImport,
 } as any)
 
-// Populate the FileRoutesByPath interface
+export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
+  '/$videoId': typeof VideoIdRoute
+  '/new': typeof NewRoute
+  '/v1': typeof V1Route
+  '/video/$videoId': typeof VideoVideoIdRoute
+}
+export interface FileRoutesByTo {
+  '/': typeof IndexRoute
+  '/$videoId': typeof VideoIdRoute
+  '/new': typeof NewRoute
+  '/v1': typeof V1Route
+  '/video/$videoId': typeof VideoVideoIdRoute
+}
+export interface FileRoutesById {
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/$videoId': typeof VideoIdRoute
+  '/new': typeof NewRoute
+  '/v1': typeof V1Route
+  '/video/$videoId': typeof VideoVideoIdRoute
+}
+export interface FileRouteTypes {
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths: '/' | '/$videoId' | '/new' | '/v1' | '/video/$videoId'
+  fileRoutesByTo: FileRoutesByTo
+  to: '/' | '/$videoId' | '/new' | '/v1' | '/video/$videoId'
+  id: '__root__' | '/' | '/$videoId' | '/new' | '/v1' | '/video/$videoId'
+  fileRoutesById: FileRoutesById
+}
+export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
+  VideoIdRoute: typeof VideoIdRoute
+  NewRoute: typeof NewRoute
+  V1Route: typeof V1Route
+  VideoVideoIdRoute: typeof VideoVideoIdRoute
+}
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexImport
-      parentRoute: typeof rootRoute
+    '/v1': {
+      id: '/v1'
+      path: '/v1'
+      fullPath: '/v1'
+      preLoaderRoute: typeof V1RouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/new': {
       id: '/new'
       path: '/new'
       fullPath: '/new'
-      preLoaderRoute: typeof NewImport
-      parentRoute: typeof rootRoute
+      preLoaderRoute: typeof NewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$videoId': {
+      id: '/$videoId'
+      path: '/$videoId'
+      fullPath: '/$videoId'
+      preLoaderRoute: typeof VideoIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/video/$videoId': {
       id: '/video/$videoId'
       path: '/video/$videoId'
       fullPath: '/video/$videoId'
-      preLoaderRoute: typeof VideoVideoIdImport
-      parentRoute: typeof rootRoute
+      preLoaderRoute: typeof VideoVideoIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
-}
-
-// Create and export the route tree
-
-export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/new': typeof NewRoute
-  '/video/$videoId': typeof VideoVideoIdRoute
-}
-
-export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/new': typeof NewRoute
-  '/video/$videoId': typeof VideoVideoIdRoute
-}
-
-export interface FileRoutesById {
-  __root__: typeof rootRoute
-  '/': typeof IndexRoute
-  '/new': typeof NewRoute
-  '/video/$videoId': typeof VideoVideoIdRoute
-}
-
-export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/new' | '/video/$videoId'
-  fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/new' | '/video/$videoId'
-  id: '__root__' | '/' | '/new' | '/video/$videoId'
-  fileRoutesById: FileRoutesById
-}
-
-export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  NewRoute: typeof NewRoute
-  VideoVideoIdRoute: typeof VideoVideoIdRoute
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  VideoIdRoute: VideoIdRoute,
   NewRoute: NewRoute,
+  V1Route: V1Route,
   VideoVideoIdRoute: VideoVideoIdRoute,
 }
-
-export const routeTree = rootRoute
+export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-/* ROUTE_MANIFEST_START
-{
-  "routes": {
-    "__root__": {
-      "filePath": "__root.tsx",
-      "children": [
-        "/",
-        "/new",
-        "/video/$videoId"
-      ]
-    },
-    "/": {
-      "filePath": "index.tsx"
-    },
-    "/new": {
-      "filePath": "new.tsx"
-    },
-    "/video/$videoId": {
-      "filePath": "video/$videoId.tsx"
-    }
-  }
-}
-ROUTE_MANIFEST_END */
