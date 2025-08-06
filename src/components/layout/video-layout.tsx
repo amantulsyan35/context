@@ -1,6 +1,6 @@
-import { useRef, useState, useCallback, ReactNode } from 'react';
+import { useRef, useState, useCallback, ReactNode, useEffect } from 'react';
 import ReactPlayer from 'react-player';
-import { Link, useParams } from '@tanstack/react-router';
+import { Link, useParams, useRouter } from '@tanstack/react-router';
 import { WheelGesturesPlugin } from 'embla-carousel-wheel-gestures';
 import {
   Carousel,
@@ -13,6 +13,7 @@ import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { getYouTubeId } from '@/utils/getYoutubeId';
 import { cn } from '@/lib/utils';
+import { Id } from '../../../convex/_generated/dataModel';
 
 interface VideoLayoutProps {
   videoUrl: string;
@@ -31,12 +32,29 @@ export function VideoLayout({
 }: VideoLayoutProps) {
   const params = useParams({ strict: false });
   const activeVideoId = params.videoId as string | undefined;
+  const router = useRouter();
 
   const videos = useQuery(api.videos.getVideos);
   const [isPlaying, setIsPlaying] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [key, setKey] = useState(0);
+  const [hoveredVideoId, setHoveredVideoId] = useState<string | null>(null);
   const playerRef = useRef<ReactPlayer>(null);
+
+  // Preload video data when hovering
+  useQuery(
+    api.videos.getVideoById,
+    hoveredVideoId ? { id: hoveredVideoId as Id<'videos'> } : "skip"
+  );
+
+  // Preload adjacent videos when active video changes
+  useEffect(() => {
+    if (!videos || !activeVideoId) return;
+
+    const currentIndex = videos.findIndex(v => v._id === activeVideoId);
+    if (currentIndex === -1) return;
+
+  }, [activeVideoId, videos, ]);
 
   const handleReady = useCallback(() => {
     setIsPlaying(true);
@@ -46,6 +64,19 @@ export function VideoLayout({
     console.error('Video failed to load');
     setHasError(true);
   }, []);
+
+  const preloadVideo = useCallback((videoId: string) => {
+
+    setHoveredVideoId(videoId);
+
+
+    router.preloadRoute({
+      to: '/$videoId',
+      params: { videoId },
+    }).catch(() => {
+      // Silent fail - route might not exist yet
+    });
+  }, [router]);
 
   if (!videos) return null;
 
@@ -94,6 +125,12 @@ export function VideoLayout({
                     mute: 1,
                     playsinline: 1,
                     origin: window.location.origin,
+                    // Performance optimizations
+                    host: 'https://www.youtube-nocookie.com',
+                    widget_referrer: window.location.origin,
+                  },
+                  embedOptions: {
+                    host: 'https://www.youtube-nocookie.com',
                   },
                 },
               }}
@@ -107,14 +144,12 @@ export function VideoLayout({
         <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-black/80 via-black/40 to-transparent" />
       </div>
 
-      {/* Content Overlay */}
       <div className="relative z-10 flex flex-col w-full min-h-screen pl-4 sm:pl-12 lg:pl-60">
-        {/* Main Content - Passed as children */}
+       
         <div className="flex-1 flex flex-col justify-center">
           <div className="max-w-4xl w-full flex flex-col">{children}</div>
         </div>
 
-        {/* Carousel - Bottom */}
         <div className="pb-8">
           <Carousel
             opts={{
@@ -170,6 +205,14 @@ export function VideoLayout({
                       className="group cursor-pointer block"
                       data-active={isActive}
                       data-available="true"
+                      preload="intent"
+                      onMouseEnter={() => {
+                        preloadVideo(video._id);
+                      }}
+                      onFocus={() => {
+                        // Also preload on keyboard navigation
+                        preloadVideo(video._id);
+                      }}
                     >
                       <div
                         className={cn(
@@ -185,6 +228,7 @@ export function VideoLayout({
                             isActive ? "opacity-100" : "opacity-50 group-hover:opacity-70"
                           )}
                           loading="lazy"
+                          decoding="async"
                         />
                       </div>
 
