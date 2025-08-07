@@ -1,3 +1,51 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Enable prerendering for social media bots
+[build.processing.html]
+  pretty_urls = true
+
+# Prerender pages for social media crawlers
+[[plugins]]
+  package = "@netlify/plugin-prerender-spa"
+  
+  [plugins.inputs]
+    # Only prerender for known social media crawlers
+    crawlUserAgents = [
+      "facebookexternalhit",
+      "twitterbot", 
+      "linkedinbot",
+      "whatsapp",
+      "telegrambot",
+      "slackbot",
+      "discordbot",
+      "googlebot"
+    ]
+    # Inject a script to wait for your React app to load
+    injectScript = """
+      // Wait for video data to load and meta tags to be updated
+      const checkForVideo = () => {
+        const title = document.title;
+        const ogImage = document.querySelector('meta[property="og:image"]');
+        
+        // Check if we have a video-specific title and og:image
+        if (title.includes(' - Context') && ogImage && ogImage.content.includes('youtube')) {
+          window.prerenderReady = true;
+        } else if (document.readyState === 'complete') {
+          // Fallback: wait a bit more for async content
+          setTimeout(() => {
+            window.prerenderReady = true;
+          }, 2000);
+        }
+      };
+      
+      // Check immediately and on load
+      checkForVideo();
+      document.addEventListener('DOMContentLoaded', checkForVideo);
+      window.addEventListener('load', checkForVideo);
+    """
+
 [[redirects]]
   from = "/*"
   to   = "/index.html"

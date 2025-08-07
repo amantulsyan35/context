@@ -5,3 +5,8 @@ export function getYouTubeId(url: string): string | null {
   const match = url.match(regex);
   return match ? match[1] : null;
 }
+
+export function getYouTubeThumbnail(url: string): string | null {
+  const videoId = getYouTubeId(url);
+  return videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : null;
+}
