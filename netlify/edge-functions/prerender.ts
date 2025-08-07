@@ -1,59 +1,48 @@
-import type { Context } from "https://edge.netlify.com";
+// /netlify/edge-functions/prerender.ts
+import type { Context, Config } from "@netlify/edge-functions";
 
-const SOCIAL_CRAWLERS = [
-  "facebookexternalhit",
-  "twitterbot",
-  "linkedinbot",
-  "whatsapp",
-  "telegrambot",
-  "slackbot",
-  "discordbot",
-  "googlebot"
-];
+const BOT_REGEX =
+  /bot|crawler|spider|facebookexternalhit|slackbot|twitterbot|linkedinbot|whatsapp|telegrambot|discordbot/i;
 
 export default async (request: Request, context: Context) => {
   const url = new URL(request.url);
-  const userAgent = request.headers.get("user-agent")?.toLowerCase() || "";
-  
-  // Check if this is a social media crawler
-  const isSocialCrawler = SOCIAL_CRAWLERS.some(crawler => 
-    userAgent.includes(crawler.toLowerCase())
-  );
-  
-  // If not a social crawler, serve normally
-  if (!isSocialCrawler) {
-    return context.next();
+  const ua = request.headers.get("user-agent") || "";
+  const isBot = BOT_REGEX.test(ua);
+
+  if (!isBot) {
+    return await context.next();
   }
 
-  console.log(`Social crawler detected: ${userAgent}`);
-  
+  // Prerender expects the full absolute URL after their host
+  const target = `https://service.prerender.io/${url.protocol}//${url.host}${url.pathname}${url.search}`;
+
   try {
-    // Use Prerender.io service
-    const prerenderUrl = `https://service.prerender.io/wCbfdB9sQfa9bgx8lD80/${url.href}`;
-    
-    const response = await fetch(prerenderUrl, {
+    const resp = await fetch(target, {
       headers: {
-        'User-Agent': userAgent,
-        'X-Prerender-Token': 'wCbfdB9sQfa9bgx8lD80'
-      }
+        "User-Agent": ua,
+        "Host": url.host,
+        "X-Forwarded-Proto": url.protocol.replace(":", ""),
+        "X-Prerender-Token": "wCbfdB9sQfa9bgx8lD80", // hardcoded token
+      },
     });
-    
-    if (response.ok) {
-      const html = await response.text();
-      return new Response(html, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/html',
-          'Cache-Control': 'public, max-age=3600'
-        }
-      });
-    } else {
-      console.error(`Prerender.io failed with status: ${response.status}`);
-      return context.next();
+
+    if (!resp.ok) {
+      console.error(`Prerender.io error: ${resp.status}`);
+      return await context.next();
     }
-    
-  } catch (error) {
-    console.error("Error in prerender edge function:", error);
-    return context.next();
+
+    const html = await resp.text();
+    return new Response(html, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "public, max-age=600",
+      },
+    });
+  } catch (e) {
+    console.error("Prerender Edge error", e);
+    return await context.next();
   }
 };
+
+export const config: Config = { path: "/*" };
