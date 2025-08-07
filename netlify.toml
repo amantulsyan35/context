@@ -2,14 +2,12 @@
   command = "npm run build"
   publish = "dist"
 
-# Prerender.io integration for social media crawlers
-[[redirects]]
-  from = "/*"
-  to = "https://service.prerender.io/wCbfdB9sQfa9bgx8lD80/https://selfatlas.in/:splat"
-  status = 200
-  conditions = {User-Agent = ["googlebot*", "bingbot*", "yandex*", "baiduspider*", "facebookexternalhit*", "twitterbot*", "rogerbot*", "linkedinbot*", "embedly*", "quora*", "showyoubot*", "outbrain*", "pinterest*", "developers.google.com*", "slackbot*", "vkShare*", "W3C_Validator*", "redditbot*", "applebot*", "whatsapp*", "flipboard*", "tumblr*", "bitlybot*", "skypeuripreview*", "nuzzel*", "discordbot*", "google page speed*", "qwantify*", "pinterestbot*", "bitrix*"]}
+# Use Edge Functions for bot detection
+[[edge_functions]]
+  function = "prerender"
+  path = "/*"
 
-# Default SPA fallback
+# Fallback to SPA
 [[redirects]]
   from = "/*"
   to = "/index.html"
