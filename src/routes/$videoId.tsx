@@ -1,3 +1,4 @@
+// routes/$videoId.tsx
 import { createFileRoute, useParams } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,7 +10,6 @@ import { useEffect, useState } from 'react';
 import ContextVideoPlayer from '@/components/context-video-player';
 import { cn } from '@/lib/utils';
 import { getYouTubeSubtitles } from '@/utils/getYoutubeId';
-
 
 // Utility: Format duration based on start/end
 function formatRunTime(start: number, end: number): string {
@@ -55,7 +55,6 @@ function VideoPage() {
         ) {
           return;
         }
-
         event.preventDefault();
         setIsPlayerOpen(true);
       }
@@ -66,18 +65,23 @@ function VideoPage() {
     };
 
     document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
+    return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isPlayerOpen]);
 
   // Fetch YouTube subtitles for the clipped time range
   useEffect(() => {
     if (!video?.link || !video?.startTime || !video?.endTime) return;
-    
-    getYouTubeSubtitles(video.link, video.startTime, video.endTime).then(subtitles => {
-      setClipSubtitles(subtitles);
-    });
+
+    getYouTubeSubtitles(video.link, video.startTime, video.endTime)
+      .then((text) => {
+        // text === '' => no subs in range; null => request failed (e.g., network)
+        if (text === null) {
+          setClipSubtitles(''); // treat as empty so we render the fallback message
+        } else {
+          setClipSubtitles(text);
+        }
+      })
+      .catch(() => setClipSubtitles(''));
   }, [video?.link, video?.startTime, video?.endTime]);
 
   if (!video) return null;
@@ -92,12 +96,14 @@ function VideoPage() {
       >
         <div className="px-4 sm:px-0">
           <hgroup className="mb-6 sm:mb-8">
-            <h1 className="text-3xl text-center sm:text-left  sm:text-4xl lg:text-5xl font-inter text-white tracking-tight leading-tight break-words">
+            <h1 className="text-3xl text-center sm:text-left sm:text-4xl lg:text-5xl font-inter text-white tracking-tight leading-tight break-words">
               {video.title}
             </h1>
-            {clipSubtitles && (
+
+   
+            {clipSubtitles !== null && (
               <p className="font-inter text-center sm:text-left font-extralight text-sm sm:text-lg leading-5 sm:leading-6 text-white mt-3 sm:mt-4 max-w-full sm:max-w-xl">
-                {clipSubtitles}
+                {clipSubtitles || ''}
               </p>
             )}
           </hgroup>
@@ -109,14 +115,9 @@ function VideoPage() {
               onClick={() => setIsPlayerOpen(true)}
               aria-label="Play video"
             >
-              <Play
-                className="w-4 h-4 group-hover:scale-110 transition-transform flex-shrink-0"
-                fill="currentColor"
-              />
+              <Play className="w-4 h-4 group-hover:scale-110 transition-transform flex-shrink-0" fill="currentColor" />
               <span className="font-medium ml-1">Play</span>
-              <kbd className="hidden sm:inline-block ml-2 px-2 py-0.5 text-xs bg-gray-200 rounded">
-                P
-              </kbd>
+              <kbd className="hidden sm:inline-block ml-2 px-2 py-0.5 text-xs bg-gray-200 rounded">P</kbd>
             </Button>
           </div>
 
@@ -134,17 +135,11 @@ function VideoPage() {
       <div
         className={cn(
           'fixed inset-0 z-50 transition-all duration-500 flex items-center justify-center',
-          isPlayerOpen
-            ? 'opacity-100 pointer-events-auto'
-            : 'opacity-0 pointer-events-none'
+          isPlayerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         )}
         aria-hidden={!isPlayerOpen}
       >
-        <div
-          className="absolute inset-0"
-          onClick={() => setIsPlayerOpen(false)}
-          aria-label="Backdrop"
-        >
+        <div className="absolute inset-0" onClick={() => setIsPlayerOpen(false)} aria-label="Backdrop">
           <div className="absolute inset-0 bg-black/80" />
           <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/40" />
           <div className="absolute inset-0 bg-gradient-radial from-transparent via-black/20 to-black/60" />
@@ -162,13 +157,8 @@ function VideoPage() {
           onClick={(e) => e.stopPropagation()}
         >
           {isPlayerOpen && (
-            <ContextVideoPlayer
-              youtubeUrl={video.link}
-              startTime={video.startTime}
-              endTime={video.endTime}
-            />
+            <ContextVideoPlayer youtubeUrl={video.link} startTime={video.startTime} endTime={video.endTime} />
           )}
-      
         </div>
       </div>
     </>

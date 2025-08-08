@@ -1,139 +1,101 @@
 const https = require('https');
 
-exports.handler = async (event, context) => {
-  // Handle CORS preflight
+exports.handler = async (event) => {
+  // CORS preflight
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS'
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
       },
-      body: ''
+      body: '',
     };
   }
 
   const { videoId, startTime, endTime } = event.queryStringParameters || {};
-  
   if (!videoId || !startTime || !endTime) {
-    return {
-      statusCode: 400,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      },
-      body: JSON.stringify({ error: 'Missing required parameters: videoId, startTime, endTime' })
-    };
+    return json(400, { error: 'Missing required parameters: videoId, startTime, endTime' });
   }
 
   const start = parseFloat(startTime);
   const end = parseFloat(endTime);
 
   try {
-    console.log(`Fetching transcript for video ${videoId} from ${start}s to ${end}s`);
-    
-    // Fetch YouTube page
+    // 1) Fetch the YouTube watch HTML
     const html = await fetchUrl(`https://www.youtube.com/watch?v=${videoId}`);
-    
-    // Extract caption tracks from the page
-    const captionMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
+
+    // 2) Extract captionTracks JSON
+    const captionMatch = html.match(/"captionTracks"\s*:\s*(\[[\s\S]*?\])/);
     if (!captionMatch) {
-      console.log('No caption tracks found');
-      return {
-        statusCode: 200,
-        headers: { 
-          'Content-Type': 'text/plain',
-          'Access-Control-Allow-Origin': '*'
-        },
-        body: ''
-      };
+      console.log('No captionTracks found');
+      return text(200, ''); // return empty string, UI will show fallback
     }
 
-    let captionTracks;
+    let tracks;
     try {
-      captionTracks = JSON.parse(captionMatch[1]);
+      tracks = JSON.parse(captionMatch[1]);
     } catch (e) {
-      console.error('Failed to parse caption tracks JSON:', e);
-      return {
-        statusCode: 200,
-        headers: { 
-          'Content-Type': 'text/plain',
-          'Access-Control-Allow-Origin': '*'
-        },
-        body: ''
-      };
+      console.error('Failed to parse captionTracks JSON:', e);
+      return text(200, '');
     }
 
-    // Find English captions
-    const englishTrack = captionTracks.find(track => 
-      track.languageCode === 'en' || track.languageCode.startsWith('en')
-    );
-
-    if (!englishTrack) {
-      console.log('No English captions found');
-      return {
-        statusCode: 200,
-        headers: { 
-          'Content-Type': 'text/plain',
-          'Access-Control-Allow-Origin': '*'
-        },
-        body: ''
-      };
+    if (!Array.isArray(tracks) || tracks.length === 0) {
+      console.log('captionTracks array empty');
+      return text(200, '');
     }
 
-    console.log('Found English captions, fetching subtitle XML...');
+    // 3) Prefer English, then any auto-EN, then first available
+    const en = tracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en'));
+    const enAsr = tracks.find(t => (t.kind === 'asr') && (t.languageCode === 'en' || t.languageCode?.startsWith('en')));
+    const track = en || enAsr || tracks[0];
 
-    // Fetch subtitle XML
-    const subtitleXml = await fetchUrl(englishTrack.baseUrl);
-    
-    // Parse XML and extract relevant text
+    if (!track?.baseUrl) {
+      console.log('No usable caption track baseUrl');
+      return text(200, '');
+    }
+
+    // Some baseUrls need fmt to ensure <text> nodes; append if missing
+    const baseUrl = track.baseUrl.includes('fmt=')
+      ? track.baseUrl
+      : `${track.baseUrl}&fmt=srv3`;
+
+    // 4) Fetch the caption XML
+    const subtitleXml = await fetchUrl(baseUrl);
+
+    // 5) Parse and slice to the time window
     const clipSubtitles = parseSubtitles(subtitleXml, start, end);
-    
-    console.log(`Found ${clipSubtitles.length} subtitle segments`);
-    
-    return {
-      statusCode: 200,
-      headers: { 
-        'Content-Type': 'text/plain',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=3600' // Cache for 1 hour
-      },
-      body: clipSubtitles.join(' ')
-    };
 
-  } catch (error) {
-    console.error('Error fetching transcript:', error);
-    return {
-      statusCode: 500,
-      headers: { 
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      },
-      body: JSON.stringify({ error: 'Failed to fetch transcript', details: error.message })
-    };
+    console.log(`Found ${clipSubtitles.length} subtitle segments in range`);
+    return text(200, clipSubtitles.join(' '));
+  } catch (err) {
+    console.error('Transcript fetch failed:', err);
+    return json(500, { error: 'Failed to fetch transcript', details: err.message });
   }
 };
 
-// Helper function to fetch URL content
 function fetchUrl(url) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    const req = https.get(
+      url,
+      {
+        headers: {
+          // Pretend to be a real browser to avoid some YT edge-cases
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          if (res.statusCode === 200) resolve(data);
+          else reject(new Error(`HTTP ${res.statusCode}`));
+        });
       }
-    }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => {
-        if (res.statusCode === 200) {
-          resolve(data);
-        } else {
-          reject(new Error(`HTTP ${res.statusCode}`));
-        }
-      });
-    });
-    
+    );
+
     req.on('error', reject);
     req.setTimeout(15000, () => {
       req.destroy();
@@ -142,40 +104,58 @@ function fetchUrl(url) {
   });
 }
 
-// Helper function to parse subtitles XML
+function decodeEntities(s) {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+// Parse <text start=".." dur=".."> ... </text> items and keep those overlapping [startTime, endTime]
 function parseSubtitles(xml, startTime, endTime) {
-  const clipSubtitles = [];
-  
-  // Simple regex to extract text elements with timing
-  const textRegex = /<text[^>]*start="([^"]*)"[^>]*(?:dur="([^"]*)")?[^>]*>(.*?)<\/text>/g;
-  let match;
-  
-  while ((match = textRegex.exec(xml)) !== null) {
-    const textStart = parseFloat(match[1]);
-    const duration = match[2] ? parseFloat(match[2]) : 4; // Default 4 second duration
-    const textEnd = textStart + duration;
-    const rawText = match[3];
-    
-    // Check if this subtitle overlaps with our clip time range
-    if ((textStart >= startTime && textStart <= endTime) || 
-        (textEnd >= startTime && textEnd <= endTime) ||
-        (textStart <= startTime && textEnd >= endTime)) {
-      
-      // Clean up the text
-      let cleanText = rawText
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/<[^>]*>/g, '') // Remove any HTML tags
-        .trim();
-      
-      if (cleanText) {
-        clipSubtitles.push(cleanText);
-      }
+  const out = [];
+  const re = /<text[^>]*start="([^"]+)"[^>]*(?:dur="([^"]*)")?[^>]*>([\s\S]*?)<\/text>/g;
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    const textStart = parseFloat(m[1]);
+    const dur = m[2] ? parseFloat(m[2]) : 4;
+    const textEnd = textStart + dur;
+    if (
+      (textStart >= startTime && textStart <= endTime) ||
+      (textEnd >= startTime && textEnd <= endTime) ||
+      (textStart <= startTime && textEnd >= endTime)
+    ) {
+      // Remove any inline tags and decode entities
+      const raw = m[3].replace(/<[^>]*>/g, '').trim();
+      const clean = decodeEntities(raw);
+      if (clean) out.push(clean);
     }
   }
-  
-  return clipSubtitles;
+  return out;
+}
+
+function json(statusCode, obj) {
+  return {
+    statusCode,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'public, max-age=3600',
+    },
+    body: JSON.stringify(obj),
+  };
+}
+
+function text(statusCode, body) {
+  return {
+    statusCode,
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'public, max-age=3600',
+    },
+    body,
+  };
 }
