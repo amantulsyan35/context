@@ -1,7 +1,7 @@
 const https = require('https');
 const zlib = require('zlib');
 
-const VERSION = 'subs-fn v7';
+const VERSION = 'subs-fn v8';
 
 exports.handler = async (event) => {
   const { videoId, startTime, endTime, debug } = event.queryStringParameters || {};
@@ -18,7 +18,7 @@ exports.handler = async (event) => {
   const end = Number(endTime);
 
   try {
-    // ---------- 1) Try timedtext directly (common combos) ----------
+    // ---------- 0) timedtext (direct guesses) ----------
     const timedCandidates = [
       `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(videoId)}&lang=en&fmt=srv3`,
       `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(videoId)}&lang=en&kind=asr&fmt=srv3`,
@@ -34,7 +34,7 @@ exports.handler = async (event) => {
       }
     }
 
-    // ---------- 2) Enumerate tracks via timedtext list ----------
+    // ---------- 1) timedtext list (enumerate exact tracks) ----------
     const listXml = await safeFetch(`https://www.youtube.com/api/timedtext?type=list&v=${encodeURIComponent(videoId)}`);
     const listTracks = parseTrackList(listXml); // [{lang, name, kind}]
     const pickedList =
@@ -51,38 +51,110 @@ exports.handler = async (event) => {
       }
     }
 
-    // ---------- 3) youtubei player API (robust) ----------
-    // Fetch watch HTML (with consent cookies) to extract API key & client version
+    // ---------- 2) youtubei (WEB → TV → ANDROID) ----------
+    // Get API key, client version, visitorData from the watch HTML
     const watchHtml = await safeFetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en&bpctr=9999999999`);
-    const apiKey = matchOne(watchHtml, /"INNERTUBE_API_KEY":"([^"]+)"/) || matchOne(watchHtml, /"innertubeApiKey":"([^"]+)"/);
-    const clientVersion = matchOne(watchHtml, /"INNERTUBE_CLIENT_VERSION":"([^"]+)"/) || matchOne(watchHtml, /"clientVersion":"([^"]+)"/);
-    if (apiKey && clientVersion) {
-      const playerJson = await youtubeiPlayer(videoId, apiKey, clientVersion);
-      const tracks = playerJson?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-      if (Array.isArray(tracks) && tracks.length) {
-        const en = tracks.find(t => t.languageCode?.toLowerCase().startsWith('en') && t.kind !== 'asr');
-        const enAsr = tracks.find(t => t.languageCode?.toLowerCase().startsWith('en') && t.kind === 'asr');
-        const track = en || enAsr || tracks[0];
-        let baseUrl = track?.baseUrl || '';
-        if (baseUrl) {
-          if (!/[\?&]fmt=/.test(baseUrl)) baseUrl += (baseUrl.includes('?') ? '&' : '?') + 'fmt=srv3';
-          const xml = await safeFetch(baseUrl);
-          const segs = parseSubtitles(xml, start, end);
-          if (isDebug) return dbg({ source: 'youtubei', usedTrack: { lang: track.languageCode, kind: track.kind }, segments: segs.length, sample: segs.slice(0,3) });
-          return resp(200, segs.join(' '), 'text/plain');
-        }
-      } else if (isDebug) {
-        // Helpful to see what youtubei said
-        return dbg({ source: 'youtubei', reason: 'no_caption_tracks', hasPlayer: !!playerJson, playerError: playerJson?.playabilityStatus });
+    const apiKey = pickOne(watchHtml, [
+      /"INNERTUBE_API_KEY":"([^"]+)"/,
+      /"innertubeApiKey":"([^"]+)"/,
+    ]);
+    const webClientVersion = pickOne(watchHtml, [
+      /"INNERTUBE_CLIENT_VERSION":"([^"]+)"/,
+      /"clientVersion":"([^"]+)"/,
+    ]);
+    const visitorData = pickOne(watchHtml, [
+      /"VISITOR_DATA":"([^"]+)"/,
+      /"visitorData":"([^"]+)"/,
+    ]);
+
+    // Try WEB client if we have essentials
+    if (apiKey && webClientVersion) {
+      const webCtx = {
+        client: {
+          hl: 'en',
+          gl: 'US',
+          clientName: 'WEB',
+          clientVersion: webClientVersion,
+          visitorData: visitorData || undefined,
+          originalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        },
+      };
+      const player = await youtubeiPlayer(videoId, apiKey, webCtx, {
+        'X-YouTube-Client-Name': '1',
+        'X-YouTube-Client-Version': webClientVersion,
+        ...(visitorData ? { 'X-Goog-Visitor-Id': visitorData } : {}),
+      });
+
+      const result = await captionsFromPlayer(player, start, end);
+      if (result) {
+        if (isDebug) return dbg({ source: 'youtubei-web', ...result.meta });
+        return resp(200, result.text, 'text/plain');
       }
-    } else if (isDebug) {
-      return dbg({ source: 'youtubei', reason: 'missing_api_key_or_client_version' });
+
+      // If explicitly LOGIN_REQUIRED, try next clients
+      const playErr = player?.playabilityStatus?.status;
+      if (isDebug && playErr) {
+        // fall through to TV/Android
+      }
     }
 
-    // ---------- 4) Last resort: scrape captionTracks from watch HTML ----------
+    // Try TV HTML5 embedded client (often bypasses some checks)
+    if (apiKey) {
+      const tvCtx = {
+        client: {
+          hl: 'en',
+          gl: 'US',
+          clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
+          clientVersion: '2.0',
+          visitorData: visitorData || undefined,
+          originalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        },
+      };
+      const playerTV = await youtubeiPlayer(videoId, apiKey, tvCtx, {
+        'X-YouTube-Client-Name': '85', // TV client id
+        'X-YouTube-Client-Version': '2.0',
+        ...(visitorData ? { 'X-Goog-Visitor-Id': visitorData } : {}),
+      });
+
+      const resultTV = await captionsFromPlayer(playerTV, start, end);
+      if (resultTV) {
+        if (isDebug) return dbg({ source: 'youtubei-tv', ...resultTV.meta });
+        return resp(200, resultTV.text, 'text/plain');
+      }
+    }
+
+    // Try ANDROID client
+    if (apiKey) {
+      const androidVersion = '19.33.35';
+      const androidCtx = {
+        client: {
+          hl: 'en',
+          gl: 'US',
+          clientName: 'ANDROID',
+          clientVersion: androidVersion,
+          androidSdkVersion: 30,
+          userAgent: `com.google.android.youtube/${androidVersion} (Linux; U; Android 11) gzip`,
+          visitorData: visitorData || undefined,
+        },
+      };
+      const playerAndroid = await youtubeiPlayer(videoId, apiKey, androidCtx, {
+        'X-YouTube-Client-Name': '3',
+        'X-YouTube-Client-Version': androidVersion,
+        'User-Agent': `com.google.android.youtube/${androidVersion} (Linux; U; Android 11) gzip`,
+        ...(visitorData ? { 'X-Goog-Visitor-Id': visitorData } : {}),
+      });
+
+      const resultAndroid = await captionsFromPlayer(playerAndroid, start, end);
+      if (resultAndroid) {
+        if (isDebug) return dbg({ source: 'youtubei-android', ...resultAndroid.meta });
+        return resp(200, resultAndroid.text, 'text/plain');
+      }
+    }
+
+    // ---------- 3) Last resort: scrape captionTracks from HTML ----------
     let foundTracks = null;
     const m1 = watchHtml.match(/"captionTracks"\s*:\s*(\[[\s\S]*?])/);
-    if (m1) try { foundTracks = JSON.parse(m1[1]); } catch {}
+    if (m1) { try { foundTracks = JSON.parse(m1[1]); } catch {} }
     if (!Array.isArray(foundTracks) || foundTracks.length === 0) {
       const m2 = watchHtml.match(/ytInitialPlayerResponse"\s*:\s*(\{[\s\S]*?})\s*,\s*"(?:ytInitial|PLAYER_)/);
       if (m2) {
@@ -106,19 +178,59 @@ exports.handler = async (event) => {
       }
     }
 
-    // ---------- No luck ----------
-    if (isDebug) {
-      return dbg({ source: 'none', reason: 'no_tracks_found_anywhere' });
-    }
+    // Nothing worked
+    if (isDebug) return dbg({ source: 'none', reason: 'no_tracks_found_anywhere' });
     return resp(200, '', 'text/plain');
   } catch (err) {
     return resp(500, JSON.stringify({ error: 'Failed to fetch transcript', details: err.message }), 'application/json');
   }
 };
 
-// ---------------- helpers ----------------
+// --------------- helpers -----------------
 
-function matchOne(str, re) { const m = str.match(re); return m ? m[1] : null; }
+function pickOne(s, regexes) { for (const r of regexes) { const m = s.match(r); if (m) return m[1]; } return null; }
+
+async function youtubeiPlayer(videoId, apiKey, contextObj, extraHeaders = {}) {
+  const url = `https://www.youtube.com/youtubei/v1/player?key=${encodeURIComponent(apiKey)}`;
+  const bodyObj = {
+    context: contextObj,
+    videoId,
+    contentCheckOk: true,
+    racyCheckOk: true,
+  };
+  const body = JSON.stringify(bodyObj);
+  const json = await fetchUrl(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Origin': 'https://www.youtube.com',
+      'Referer': 'https://www.youtube.com/',
+      'Accept-Encoding': 'gzip, br, deflate',
+      ...extraHeaders,
+    },
+    body,
+  });
+  try { return JSON.parse(json); } catch { return null; }
+}
+
+async function captionsFromPlayer(playerJson, start, end) {
+  const tracks = playerJson?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+  if (!Array.isArray(tracks) || tracks.length === 0) return null;
+  const en = tracks.find(t => t.languageCode?.toLowerCase().startsWith('en') && t.kind !== 'asr');
+  const enAsr = tracks.find(t => t.languageCode?.toLowerCase().startsWith('en') && t.kind === 'asr');
+  const track = en || enAsr || tracks[0];
+
+  let baseUrl = track?.baseUrl || '';
+  if (!baseUrl) return null;
+  if (!/[\?&]fmt=/.test(baseUrl)) baseUrl += (baseUrl.includes('?') ? '&' : '?') + 'fmt=srv3';
+
+  const xml = await safeFetch(baseUrl);
+  const segs = parseSubtitles(xml, start, end);
+  return {
+    text: segs.join(' '),
+    meta: { usedTrack: { lang: track.languageCode, kind: track.kind }, segments: segs.length, sample: segs.slice(0,3) }
+  };
+}
 
 function fetchUrl(url, { method = 'GET', headers = {}, body = null } = {}) {
   return new Promise((resolve, reject) => {
@@ -131,8 +243,12 @@ function fetchUrl(url, { method = 'GET', headers = {}, body = null } = {}) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, br, deflate',
-        // Try to bypass consent:
-        'Cookie': 'CONSENT=YES+cb.20240717-16-p0.en+FX; SOCS=CAISNQgDEiI2Z3ZyX2VuX1VTL2VuOkdCOjIwMjUwODA4LjA=:__', // generic consent-ish
+        // Cookies to dodge consent/bot checks as much as possible
+        'Cookie': [
+          'CONSENT=YES+cb.20240717-16-p0.en+FX',
+          'SOCS=CAISNQgDEiI2Z3ZyX2VuX1VTL2VuOkdCOjIwMjUwODA4LjA=',
+          'PREF=tz=Asia.Kolkata&f6=400',
+        ].join('; '),
         ...headers,
       },
     };
@@ -140,7 +256,7 @@ function fetchUrl(url, { method = 'GET', headers = {}, body = null } = {}) {
     const req = https.request(opts, (res) => {
       const { statusCode, headers: h } = res;
 
-      // follow redirects
+      // Redirects
       if (statusCode >= 300 && statusCode < 400 && h.location) {
         const next = h.location.startsWith('http') ? h.location : new URL(h.location, url).href;
         res.resume();
@@ -148,24 +264,7 @@ function fetchUrl(url, { method = 'GET', headers = {}, body = null } = {}) {
         return;
       }
 
-      if (statusCode !== 200) {
-        // Some youtubei errors still return JSON; collect body then reject
-        const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => {
-          const buf = Buffer.concat(chunks);
-          const enc = (h['content-encoding'] || '').toLowerCase();
-          let raw = buf;
-          try {
-            if (enc.includes('br')) raw = zlib.brotliDecompressSync(buf);
-            else if (enc.includes('gzip')) raw = zlib.gunzipSync(buf);
-            else if (enc.includes('deflate')) raw = zlib.inflateSync(buf);
-          } catch {}
-          reject(new Error(`HTTP ${statusCode}: ${raw.toString('utf8').slice(0,200)}`));
-        });
-        return;
-      }
-
+      // Collect body (even on errors) so we can decode
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
@@ -177,7 +276,8 @@ function fetchUrl(url, { method = 'GET', headers = {}, body = null } = {}) {
           else if (enc.includes('gzip')) out = zlib.gunzipSync(buf);
           else if (enc.includes('deflate')) out = zlib.inflateSync(buf);
           else out = buf;
-          resolve(out.toString('utf8'));
+          if (statusCode !== 200) reject(new Error(`HTTP ${statusCode}: ${out.toString('utf8').slice(0,200)}`));
+          else resolve(out.toString('utf8'));
         } catch (e) {
           reject(new Error(`Decompression failed (${enc || 'none'}): ${e.message}`));
         }
@@ -196,36 +296,6 @@ async function safeFetch(url) {
   if (!u.searchParams.has('hl')) u.searchParams.set('hl', 'en');
   if (!u.searchParams.has('persist_hl')) u.searchParams.set('persist_hl', '1');
   return fetchUrl(u.href);
-}
-
-async function youtubeiPlayer(videoId, apiKey, clientVersion) {
-  const url = `https://www.youtube.com/youtubei/v1/player?key=${encodeURIComponent(apiKey)}`;
-  const bodyObj = {
-    context: {
-      client: {
-        hl: 'en',
-        gl: 'US',
-        clientName: 'WEB',
-        clientVersion: clientVersion,
-      },
-    },
-    videoId,
-    contentCheckOk: true,
-    racyCheckOk: true,
-  };
-  const body = JSON.stringify(bodyObj);
-  const json = await fetchUrl(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-YouTube-Client-Name': '1',
-      'X-YouTube-Client-Version': clientVersion,
-      'Origin': 'https://www.youtube.com',
-      'Referer': 'https://www.youtube.com/',
-    },
-    body,
-  });
-  try { return JSON.parse(json); } catch { return null; }
 }
 
 function parseTrackList(xml) {
@@ -283,6 +353,4 @@ function resp(status, body, type) {
   };
 }
 
-function dbg(obj) {
-  return resp(200, JSON.stringify(obj, null, 2), 'application/json');
-}
+function dbg(obj) { return resp(200, JSON.stringify(obj, null, 2), 'application/json'); }
