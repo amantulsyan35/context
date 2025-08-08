@@ -8,7 +8,8 @@ import { VideoLayout } from '@/components/layout/video-layout';
 import { useEffect, useState } from 'react';
 import ContextVideoPlayer from '@/components/context-video-player';
 import { cn } from '@/lib/utils';
-import { getYouTubeThumbnail } from '@/utils/getYoutubeId';
+import { getYouTubeSubtitles } from '@/utils/getYoutubeId';
+
 
 // Utility: Format duration based on start/end
 function formatRunTime(start: number, end: number): string {
@@ -42,6 +43,7 @@ function VideoPage() {
   });
 
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
+  const [clipSubtitles, setClipSubtitles] = useState<string | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -69,62 +71,14 @@ function VideoPage() {
     };
   }, [isPlayerOpen]);
 
-  // Update meta tags when video data loads
+  // Fetch YouTube subtitles for the clipped time range
   useEffect(() => {
-    if (!video) return;
-
-    const thumbnailUrl = getYouTubeThumbnail(video.link);
-    if (!thumbnailUrl) return;
-
-    // Update document title
-    document.title = `${video.title} - Context`;
-
-    // Update or create Open Graph meta tags
-    const updateMetaTag = (property: string, content: string) => {
-      let meta = document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement;
-      if (!meta) {
-        meta = document.createElement('meta');
-        meta.setAttribute('property', property);
-        document.head.appendChild(meta);
-      }
-      meta.content = content;
-    };
-
-    const updateNameMetaTag = (name: string, content: string) => {
-      let meta = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement;
-      if (!meta) {
-        meta = document.createElement('meta');
-        meta.setAttribute('name', name);
-        document.head.appendChild(meta);
-      }
-      meta.content = content;
-    };
-
-    // Open Graph tags
-    updateMetaTag('og:title', video.title);
-    updateMetaTag('og:description', `Watch "${video.title}" - Context sharing made simple`);
-    updateMetaTag('og:image', thumbnailUrl);
-    updateMetaTag('og:image:secure_url', thumbnailUrl);
-    updateMetaTag('og:url', window.location.href);
-    updateMetaTag('og:type', 'video.other');
-
-    // Twitter Card tags
-    updateNameMetaTag('twitter:card', 'summary_large_image');
-    updateNameMetaTag('twitter:title', video.title);
-    updateNameMetaTag('twitter:description', `Watch "${video.title}" - Context sharing made simple`);
-    updateNameMetaTag('twitter:image', thumbnailUrl);
-
-    // Signal that the page is ready for prerendering
-    if (typeof window !== 'undefined') {
-      (window as any).prerenderReady = true;
-    }
-
-    // Cleanup function to reset meta tags on component unmount
-    return () => {
-      document.title = 'Context';
-      // Note: We don't remove the meta tags on unmount as they should persist for sharing
-    };
-  }, [video]);
+    if (!video?.link || !video?.startTime || !video?.endTime) return;
+    
+    getYouTubeSubtitles(video.link, video.startTime, video.endTime).then(subtitles => {
+      setClipSubtitles(subtitles);
+    });
+  }, [video?.link, video?.startTime, video?.endTime]);
 
   if (!video) return null;
 
@@ -141,6 +95,11 @@ function VideoPage() {
             <h1 className="text-3xl text-center sm:text-left  sm:text-4xl lg:text-5xl font-inter text-white tracking-tight leading-tight break-words">
               {video.title}
             </h1>
+            {clipSubtitles && (
+              <p className="font-inter text-center sm:text-left font-extralight text-sm sm:text-lg leading-5 sm:leading-6 text-white mt-3 sm:mt-4 max-w-full sm:max-w-xl">
+                {clipSubtitles}
+              </p>
+            )}
           </hgroup>
 
           <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 mb-4 sm:mb-6">
