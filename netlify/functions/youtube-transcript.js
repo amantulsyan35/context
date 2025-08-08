@@ -1,160 +1,143 @@
 const https = require('https');
+const MAX_REDIRECTS = 3;
+const VERSION = 'subs-fn v4';
 
 exports.handler = async (event) => {
-  // CORS preflight
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      },
-      body: '',
-    };
-  }
+  const { videoId, startTime, endTime, debug } = event.queryStringParameters || {};
+  const isDebug = debug === '1';
 
-  const { videoId, startTime, endTime } = event.queryStringParameters || {};
+  if (event.httpMethod === 'OPTIONS') {
+    return resp(200, '', 'text/plain', { 'X-Subs-Version': VERSION });
+  }
   if (!videoId || !startTime || !endTime) {
-    return json(400, { error: 'Missing required parameters: videoId, startTime, endTime' });
+    return resp(400, JSON.stringify({ error: 'Missing required parameters: videoId, startTime, endTime' }), 'application/json', { 'X-Subs-Version': VERSION });
   }
 
   const start = parseFloat(startTime);
   const end = parseFloat(endTime);
 
   try {
-    // 1) Fetch the YouTube watch HTML
-    const html = await fetchUrl(`https://www.youtube.com/watch?v=${videoId}`);
-
-    // 2) Extract captionTracks JSON
-    const captionMatch = html.match(/"captionTracks"\s*:\s*(\[[\s\S]*?\])/);
-    if (!captionMatch) {
-      console.log('No captionTracks found');
-      return text(200, ''); // return empty string, UI will show fallback
+    // 1) Try timedtext first (no scraping)
+    const timedtextUrls = [
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=srv3`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&kind=asr&fmt=srv3`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en-GB&fmt=srv3`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en-US&fmt=srv3`,
+    ];
+    for (const u of timedtextUrls) {
+      const xml = await fetchUrl(u).catch(() => null);
+      if (xml && /<text[^>]*start=/.test(xml)) {
+        const segs = parseSubtitles(xml, start, end);
+        if (isDebug) {
+          return resp(200, JSON.stringify({ source: 'timedtext', url: u, segments: segs.length, sample: segs.slice(0, 3) }, null, 2), 'application/json', { 'X-Subs-Version': VERSION });
+        }
+        return resp(200, segs.join(' '), 'text/plain', { 'X-Subs-Version': VERSION });
+      }
     }
 
-    let tracks;
-    try {
-      tracks = JSON.parse(captionMatch[1]);
-    } catch (e) {
-      console.error('Failed to parse captionTracks JSON:', e);
-      return text(200, '');
+    // 2) Fallback: scrape watch HTML -> captionTracks or ytInitialPlayerResponse
+    const html = await fetchUrl(`https://www.youtube.com/watch?v=${videoId}`);
+    let tracks = null;
+
+    let m = html.match(/"captionTracks"\s*:\s*(\[[\s\S]*?\])/);
+    if (m) {
+      try { tracks = JSON.parse(m[1]); } catch {}
+    }
+    if (!Array.isArray(tracks) || tracks.length === 0) {
+      const pr = html.match(/ytInitialPlayerResponse"\s*:\s*(\{[\s\S]*?\})/);
+      if (pr) {
+        try {
+          const obj = JSON.parse(pr[1]);
+          tracks = obj?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+        } catch {}
+      }
     }
 
     if (!Array.isArray(tracks) || tracks.length === 0) {
-      console.log('captionTracks array empty');
-      return text(200, '');
+      if (isDebug) return resp(200, JSON.stringify({ source: 'scrape', reason: 'no_caption_tracks' }, null, 2), 'application/json', { 'X-Subs-Version': VERSION });
+      return resp(200, '', 'text/plain', { 'X-Subs-Version': VERSION });
     }
 
-    // 3) Prefer English, then any auto-EN, then first available
-    const en = tracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en'));
-    const enAsr = tracks.find(t => (t.kind === 'asr') && (t.languageCode === 'en' || t.languageCode?.startsWith('en')));
+    const en = tracks.find(t => t.languageCode?.startsWith('en'));
+    const enAsr = tracks.find(t => t.kind === 'asr' && t.languageCode?.startsWith('en'));
     const track = en || enAsr || tracks[0];
 
     if (!track?.baseUrl) {
-      console.log('No usable caption track baseUrl');
-      return text(200, '');
+      if (isDebug) return resp(200, JSON.stringify({ source: 'scrape', reason: 'no_base_url', languages: tracks.map(t => ({ lang: t.languageCode, kind: t.kind })) }, null, 2), 'application/json', { 'X-Subs-Version': VERSION });
+      return resp(200, '', 'text/plain', { 'X-Subs-Version': VERSION });
     }
 
-    // Some baseUrls need fmt to ensure <text> nodes; append if missing
-    const baseUrl = track.baseUrl.includes('fmt=')
-      ? track.baseUrl
-      : `${track.baseUrl}&fmt=srv3`;
+    let baseUrl = track.baseUrl;
+    if (!/[\?&]fmt=/.test(baseUrl)) baseUrl += (baseUrl.includes('?') ? '&' : '?') + 'fmt=srv3';
 
-    // 4) Fetch the caption XML
     const subtitleXml = await fetchUrl(baseUrl);
+    const segs = parseSubtitles(subtitleXml, start, end);
 
-    // 5) Parse and slice to the time window
-    const clipSubtitles = parseSubtitles(subtitleXml, start, end);
-
-    console.log(`Found ${clipSubtitles.length} subtitle segments in range`);
-    return text(200, clipSubtitles.join(' '));
+    if (isDebug) {
+      return resp(200, JSON.stringify({ source: 'scrape', usedTrack: { lang: track.languageCode, kind: track.kind }, segments: segs.length, sample: segs.slice(0, 3) }, null, 2), 'application/json', { 'X-Subs-Version': VERSION });
+    }
+    return resp(200, segs.join(' '), 'text/plain', { 'X-Subs-Version': VERSION });
   } catch (err) {
-    console.error('Transcript fetch failed:', err);
-    return json(500, { error: 'Failed to fetch transcript', details: err.message });
+    return resp(500, JSON.stringify({ error: 'Failed to fetch transcript', details: err.message }), 'application/json', { 'X-Subs-Version': VERSION });
   }
 };
 
-function fetchUrl(url) {
+function fetchUrl(url, redirects = 0) {
   return new Promise((resolve, reject) => {
-    const req = https.get(
-      url,
-      {
-        headers: {
-          // Pretend to be a real browser to avoid some YT edge-cases
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (chunk) => (data += chunk));
-        res.on('end', () => {
-          if (res.statusCode === 200) resolve(data);
-          else reject(new Error(`HTTP ${res.statusCode}`));
-        });
+    const req = https.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
       }
-    );
-
-    req.on('error', reject);
-    req.setTimeout(15000, () => {
-      req.destroy();
-      reject(new Error('Request timeout'));
+    }, (res) => {
+      const { statusCode, headers } = res;
+      if (statusCode >= 300 && statusCode < 400 && headers.location) {
+        if (redirects >= MAX_REDIRECTS) return reject(new Error('Too many redirects'));
+        const next = headers.location.startsWith('http') ? headers.location : new URL(headers.location, url).href;
+        res.resume();
+        fetchUrl(next, redirects + 1).then(resolve).catch(reject);
+        return;
+      }
+      if (statusCode !== 200) return reject(new Error(`HTTP ${statusCode}`));
+      let data = '';
+      res.on('data', (c) => (data += c));
+      res.on('end', () => resolve(data));
     });
+    req.on('error', reject);
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Request timeout')); });
   });
 }
 
-function decodeEntities(s) {
-  return s
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-}
-
-// Parse <text start=".." dur=".."> ... </text> items and keep those overlapping [startTime, endTime]
 function parseSubtitles(xml, startTime, endTime) {
   const out = [];
   const re = /<text[^>]*start="([^"]+)"[^>]*(?:dur="([^"]*)")?[^>]*>([\s\S]*?)<\/text>/g;
   let m;
   while ((m = re.exec(xml)) !== null) {
-    const textStart = parseFloat(m[1]);
+    const s = parseFloat(m[1]);
     const dur = m[2] ? parseFloat(m[2]) : 4;
-    const textEnd = textStart + dur;
-    if (
-      (textStart >= startTime && textStart <= endTime) ||
-      (textEnd >= startTime && textEnd <= endTime) ||
-      (textStart <= startTime && textEnd >= endTime)
-    ) {
-      // Remove any inline tags and decode entities
+    const e = s + dur;
+    if ((s >= startTime && s <= endTime) || (e >= startTime && e <= endTime) || (s <= startTime && e >= endTime)) {
       const raw = m[3].replace(/<[^>]*>/g, '').trim();
-      const clean = decodeEntities(raw);
+      const clean = raw
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
       if (clean) out.push(clean);
     }
   }
   return out;
 }
 
-function json(statusCode, obj) {
+function resp(status, body, type, extra = {}) {
   return {
-    statusCode,
+    statusCode: status,
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': type,
       'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'public, max-age=3600',
-    },
-    body: JSON.stringify(obj),
-  };
-}
-
-function text(statusCode, body) {
-  return {
-    statusCode,
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': 'no-store',   // disable cache while testing
+      ...extra,
     },
     body,
   };

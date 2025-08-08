@@ -5,12 +5,19 @@
 [functions]
   directory = "netlify/functions"
 
-# Use Edge Functions for bot detection
 [[edge_functions]]
   function = "prerender"
   path = "/*"
+  excludedPath = [
+    "/.netlify/functions/*",
+    "/favicon.ico",
+    "/assets/*",
+    "/static/*",
+    "/robots.txt",
+    "/sitemap.xml"
+  ]
 
-# Fallback to SPA
+# SPA fallback (doesn't affect /.netlify/functions/*)
 [[redirects]]
   from = "/*"
   to = "/index.html"
