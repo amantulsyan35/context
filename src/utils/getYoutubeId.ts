@@ -1,30 +1,41 @@
 export function getYouTubeId(url: string): string | null {
   try {
-    // youtu.be/<id>
-    const short = url.match(/^https?:\/\/youtu\.be\/([A-Za-z0-9_-]{11})/i);
+    // youtu.be/<id> - exactly 11 characters
+    const short = url.match(/^https?:\/\/youtu\.be\/([A-Za-z0-9_-]{11})(?:\?|$)/i);
     if (short) return short[1];
 
-    // youtube(-nocookie).com/embed/<id>
-    const embed = url.match(/youtube(?:-nocookie)?\.com\/embed\/([A-Za-z0-9_-]{11})/i);
+    // youtube(-nocookie).com/embed/<id> - exactly 11 characters
+    const embed = url.match(/youtube(?:-nocookie)?\.com\/embed\/([A-Za-z0-9_-]{11})(?:\?|$)/i);
     if (embed) return embed[1];
 
     // youtube(-nocookie).com/watch?v=<id>
     const u = new URL(url);
     if (
-      (u.hostname.includes('youtube.com') || u.hostname.includes('youtube-nocookie.com')) &&
-      u.searchParams.get('v')
+      (u.hostname.includes('youtube.com') || u.hostname.includes('youtube-nocookie.com'))
     ) {
-      return u.searchParams.get('v');
+      const v = u.searchParams.get('v');
+      // Validate YouTube ID is exactly 11 characters
+      if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) {
+        return v;
+      }
     }
     return null;
-  } catch {
+  } catch (error) {
+    console.error('Error parsing YouTube URL:', error);
     return null;
   }
 }
 
-export function getYouTubeThumbnail(url: string): string | null {
+export function getYouTubeThumbnail(url: string, quality: 'maxresdefault' | 'hqdefault' | 'mqdefault' | 'sddefault' = 'hqdefault'): string | null {
   const id = getYouTubeId(url);
-  return id ? `https://img.youtube.com/vi/${id}/maxresdefault.jpg` : null;
+  if (!id) return null;
+
+  // Use consistent domain with edge function
+  // hqdefault (480x360) - most reliable, exists for virtually all videos
+  // maxresdefault (1280x720) - high quality but doesn't exist for all videos
+  // mqdefault (320x180) - medium quality
+  // sddefault (640x480) - standard definition
+  return `https://i.ytimg.com/vi/${id}/${quality}.jpg`;
 }
 
 export async function getYouTubeSubtitles(
@@ -54,4 +65,38 @@ export async function getYouTubeSubtitles(
     console.error('Error fetching YouTube subtitles:', e);
     return null;
   }
+}
+
+// Helper function to test if a YouTube thumbnail exists
+export async function validateYouTubeThumbnail(videoId: string, quality: 'maxresdefault' | 'hqdefault' | 'mqdefault' | 'sddefault' = 'hqdefault'): Promise<boolean> {
+  try {
+    const thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/${quality}.jpg`;
+    const response = await fetch(thumbnailUrl, { method: 'HEAD' });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Helper function to get the best available thumbnail
+export async function getBestYouTubeThumbnail(url: string): Promise<string | null> {
+  const id = getYouTubeId(url);
+  if (!id) return null;
+
+  // Try qualities in order of preference
+  const qualities: Array<'maxresdefault' | 'hqdefault' | 'mqdefault' | 'sddefault'> = [
+    'maxresdefault',
+    'hqdefault', 
+    'mqdefault',
+    'sddefault'
+  ];
+
+  for (const quality of qualities) {
+    if (await validateYouTubeThumbnail(id, quality)) {
+      return `https://i.ytimg.com/vi/${id}/${quality}.jpg`;
+    }
+  }
+
+  // Fallback to hqdefault (most reliable)
+  return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 }
