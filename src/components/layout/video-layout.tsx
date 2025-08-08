@@ -8,6 +8,7 @@ import {
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
+  CarouselApi
 } from '@/components/ui/carousel';
 import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
@@ -36,6 +37,7 @@ export function VideoLayout({
 
   const videos = useQuery(api.videos.getVideos);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [carouselApi, setCarouselApi] = useState<CarouselApi | null>(null);
   const [hasError, setHasError] = useState(false);
   const [key, setKey] = useState(0);
   const [hoveredVideoId, setHoveredVideoId] = useState<string | null>(null);
@@ -77,6 +79,14 @@ export function VideoLayout({
       // Silent fail - route might not exist yet
     });
   }, [router]);
+
+  useEffect(() => {
+    if (!videos || !activeVideoId || !carouselApi) return;
+    const index = videos.findIndex(v => v._id === activeVideoId);
+    if (index >= 0) {
+      carouselApi.scrollTo(index); // jump=false by default; keeps your smooth opts
+    }
+  }, [activeVideoId, videos, carouselApi]);
 
   if (!videos) return null;
 
@@ -151,7 +161,8 @@ export function VideoLayout({
         </div>
 
         <div className="pb-8">
-          <Carousel
+        <Carousel
+            setApi={setCarouselApi}
             opts={{
               duration: 20,
               align: 'start',
@@ -206,12 +217,12 @@ export function VideoLayout({
                       data-active={isActive}
                       data-available="true"
                       preload="intent"
-                      onMouseEnter={() => {
-                        preloadVideo(video._id);
-                      }}
-                      onFocus={() => {
-                        // Also preload on keyboard navigation
-                        preloadVideo(video._id);
+                      onMouseEnter={() => preloadVideo(video._id)}
+                      onFocus={() => preloadVideo(video._id)}
+                      onClick={() => {
+                        if (!videos || !carouselApi) return;
+                        const idx = videos.findIndex(v => v._id === video._id);
+                        if (idx >= 0) carouselApi.scrollTo(idx);
                       }}
                     >
                       <div

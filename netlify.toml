@@ -2,22 +2,12 @@
   command = "npm run build"
   publish = "dist"
 
-[functions]
-  directory = "netlify/functions"
-
+# Use Edge Functions for bot detection
 [[edge_functions]]
   function = "prerender"
   path = "/*"
-  excludedPath = [
-    "/.netlify/functions/*",
-    "/favicon.ico",
-    "/assets/*",
-    "/static/*",
-    "/robots.txt",
-    "/sitemap.xml"
-  ]
 
-# SPA fallback (doesn't affect /.netlify/functions/*)
+# Fallback to SPA
 [[redirects]]
   from = "/*"
   to = "/index.html"
