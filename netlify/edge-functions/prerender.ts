@@ -1,61 +1,56 @@
 // /netlify/edge-functions/prerender.ts
 import type { Context, Config } from "@netlify/edge-functions";
 
-/**
- * If you prefer env vars, swap this for: const PRERENDER_TOKEN = Deno.env.get('PRERENDER_TOKEN')!;
- */
+// Fallback for non-matching paths (Prerender.io)
 const PRERENDER_TOKEN = "wCbfdB9sQfa9bgx8lD80";
+// Your Cloudinary cloud name
+const CLOUDINARY_CLOUD = "dkrdwicst";
 
+// Bot detection
 const BOT_REGEX =
   /bot|crawler|spider|bingbot|duckduckbot|baiduspider|yandex|facebookexternalhit|slackbot|twitterbot|linkedinbot|whatsapp|telegrambot|discordbot/i;
-
-// Avoid infinite loops if Prerender (or a headless fetch) re-calls your site
+// Loop guard if Prerender (or headless) re-fetches your site
 const PRERENDER_UA_REGEX = /prerender|headlesschrome|puppeteer/i;
 
+// Skip assets/APIs
 const isAssetPath = (p: string) =>
   /\.(?:js|css|png|jpe?g|gif|webp|svg|ico|json|txt|xml|map|woff2?|ttf|eot|mp4|webm|ogg)$/i.test(p);
 
+// Escape meta content
 const htmlEscape = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
+// Extract 11-char YouTube ID from various URL shapes
 const ytId = (url: string) => {
   try {
-    // youtu.be/<id> - exactly 11 characters
     const short = url.match(/^https?:\/\/youtu\.be\/([A-Za-z0-9_-]{11})(?:\?|$)/i);
     if (short) return short[1];
-    
-    // youtube(-nocookie).com/embed/<id> - exactly 11 characters
+
     const embed = url.match(/youtube(?:-nocookie)?\.com\/embed\/([A-Za-z0-9_-]{11})(?:\?|$)/i);
     if (embed) return embed[1];
-    
-    // youtube(-nocookie).com/watch?v=<id>
+
     const u = new URL(url);
-    if ((u.hostname.includes("youtube.com") || u.hostname.includes("youtube-nocookie.com"))) {
+    if (u.hostname.includes("youtube.com") || u.hostname.includes("youtube-nocookie.com")) {
       const v = u.searchParams.get("v");
-      // Validate YouTube ID is exactly 11 characters
       if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
     }
-  } catch (e) {
-    console.error("Error parsing YouTube URL:", e);
-  }
+  } catch {}
   return null;
 };
 
-const getYouTubeThumbnail = (videoId: string | null): string => {
-  if (!videoId) return "";
-  
-  // Use hqdefault as it's more reliable than maxresdefault
-  // hqdefault (480x360) exists for virtually all videos
-  // You could also try: mqdefault (320x180), sddefault (640x480)
-  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-};
+// Cloudinary-safe encoder for l_text (no replaceAll)
+const cldText = (t: string) =>
+  encodeURIComponent(t).replace(/%2F/g, "%252F").replace(/%2C/g, "%252C");
 
-const renderOG = (opts: {
-  title: string;
-  canonical: string;
-  image: string;
-  description: string;
-}) => {
+// Cloudinary URL: fetch YT hqdefault + overlay title
+const cloudinaryFromYt = (cloud: string, yt: string, title: string) =>
+  `https://res.cloudinary.com/${cloud}/image/fetch/` +
+  `w_1200,h_630,c_fill,q_auto,f_jpg/` +
+  `l_text:Arial_64_bold:${cldText(title)},co_white,g_south_west,x_64,y_64,w_1000,c_fit/` +
+  `https://i.ytimg.com/vi/${yt}/hqdefault.jpg`;
+
+// Minimal HTML with OG/Twitter tags + client redirect
+const renderOG = (opts: { title: string; canonical: string; image: string; description: string }) => {
   const t = htmlEscape(opts.title);
   const d = htmlEscape(opts.description);
   const i = htmlEscape(opts.image);
@@ -73,8 +68,8 @@ const renderOG = (opts: {
   <meta property="og:url" content="${c}" />
   <meta property="og:image" content="${i}" />
   <meta property="og:image:secure_url" content="${i}" />
-  <meta property="og:image:width" content="480" />
-  <meta property="og:image:height" content="360" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${t}" />
   <meta name="twitter:description" content="${d}" />
@@ -82,7 +77,6 @@ const renderOG = (opts: {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 </head>
 <body>
-  <!-- Simple client redirect so humans still land on the SPA -->
   <script>location.replace(${JSON.stringify(c)});</script>
 </body>
 </html>`;
@@ -92,81 +86,41 @@ export default async (request: Request, context: Context) => {
   const url = new URL(request.url);
   const ua = request.headers.get("user-agent") || "";
 
-  // Only HTML-like GET/HEAD; skip assets & APIs
+  // Only HTML GET/HEAD; skip assets/APIs
   if (!/^(GET|HEAD)$/i.test(request.method)) return context.next();
   if (isAssetPath(url.pathname) || url.pathname.startsWith("/api")) return context.next();
 
-  const isBot = BOT_REGEX.test(ua);
-  if (!isBot) return context.next();
+  // Only handle bots here
+  if (!BOT_REGEX.test(ua)) return context.next();
+  if (PRERENDER_UA_REGEX.test(ua) || request.headers.has("X-Prerender")) return context.next();
 
-  // Loop guard (when Prerender itself fetches your site)
-  if (PRERENDER_UA_REGEX.test(ua) || request.headers.has("X-Prerender")) {
-    return context.next();
-  }
-
-  // Heuristic: your app routes /:videoId at the root
+  // Match /:videoId (single segment path under root)
   const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
   const looksLikeVideoId = parts.length === 1 && parts[0].length > 0;
 
-  // Try to SSR OG for /:videoId via a small Netlify function that returns video JSON
   if (looksLikeVideoId) {
-    const id = parts[0];
-    const api = `${url.origin}/.netlify/functions/public-video?id=${encodeURIComponent(id)}`;
+    const pageId = parts[0];
+    const api = `${url.origin}/.netlify/functions/public-video?id=${encodeURIComponent(pageId)}`;
 
-    console.log(`Processing video ID: ${id}`);
-    console.log(`API URL: ${api}`);
-
+    // Short timeout so bots aren't blocked
     const ac = new AbortController();
-    const timeout = setTimeout(() => ac.abort(), 3000);
+    const timeout = setTimeout(() => ac.abort(), 3500);
 
     try {
-      const r = await fetch(api, {
-        signal: ac.signal,
-        headers: { 
-          "accept": "application/json",
-          "user-agent": "Netlify Edge Function"
-        },
-      });
+      const r = await fetch(api, { signal: ac.signal, headers: { accept: "application/json" } });
       clearTimeout(timeout);
 
-      console.log(`API Response Status: ${r.status}`);
-
       if (r.ok) {
-        const v = await r.json() as {
-          title: string;
-          link: string;
-          startTime?: number;
-          endTime?: number;
-        };
-
-        console.log('Video data received:', {
-          title: v.title,
-          link: v.link,
-          startTime: v.startTime,
-          endTime: v.endTime
-        });
-
-        const vid = ytId(v.link);
-        console.log(`Extracted YouTube ID: ${vid}`);
-
-        // Get thumbnail with fallback
-        let image = "";
-        if (vid) {
-          image = getYouTubeThumbnail(vid);
-          console.log(`YouTube thumbnail URL: ${image}`);
-        } else {
-          image = `${url.origin}/context_og.jpg`;
-          console.log(`Using fallback image: ${image}`);
-        }
+        const v = (await r.json()) as { title: string; link: string; startTime?: number; endTime?: number };
+        const ytid = ytId(v.link);
+        const image = ytid ? cloudinaryFromYt(CLOUDINARY_CLOUD, ytid, v.title) : `${url.origin}/context_og.jpg`;
 
         const html = renderOG({
           title: v.title,
-          canonical: url.origin + url.pathname, // no search to avoid dupes
+          canonical: url.origin + url.pathname,
           image,
           description: `Watch "${v.title}" – Context sharing made simple.`,
         });
-
-        console.log('Generated OG HTML successfully');
 
         return new Response(html, {
           status: 200,
@@ -175,29 +129,22 @@ export default async (request: Request, context: Context) => {
             "Cache-Control": "max-age=0, s-maxage=600",
             "Vary": "User-Agent",
             "x-prerender-edge": "ssr",
-            "x-prerender-status": "200",
-            "x-video-id": vid || "none",
+            "x-video-id": ytid ?? "none",
             "x-image-url": image,
           },
         });
-      } else {
-        console.log(`API returned non-OK status: ${r.status}`);
       }
-      // If 404/500/etc, fall through to Prerender below
-    } catch (error) {
+      // fall through if 404/500
+    } catch {
       clearTimeout(timeout);
-      console.error('Error fetching video data:', error);
-      // Fall through to Prerender below on timeout/network error
-    } finally {
-      clearTimeout(timeout);
+      // fall through
     }
   }
 
-  // Fallback: proxy to Prerender.io (works for any path)
+  // Fallback: proxy to Prerender.io (other routes or failures)
   const target = `https://service.prerender.io/${url.protocol}//${url.host}${url.pathname}${url.search}`;
-
-  const ac = new AbortController();
-  const timeout = setTimeout(() => ac.abort(), 8000);
+  const ac2 = new AbortController();
+  const timeout2 = setTimeout(() => ac2.abort(), 8000);
 
   let upstream: Response | undefined;
   try {
@@ -211,13 +158,12 @@ export default async (request: Request, context: Context) => {
         "Referer": request.headers.get("referer") || "",
       },
       cache: "no-store",
-      signal: ac.signal,
+      signal: ac2.signal,
     });
-  } catch (error) {
-    console.error('Error fetching from Prerender.io:', error);
-    // swallow, we'll mark miss below
+  } catch {
+    // swallow
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timeout2);
   }
 
   if (upstream?.ok) {
@@ -234,12 +180,11 @@ export default async (request: Request, context: Context) => {
     });
   }
 
-  // Last resort: let the SPA handle it, but keep debug headers
+  // Last resort: let SPA handle it, keep debug headers
   const downstream = await context.next();
   const h = new Headers(downstream.headers);
   h.set("Vary", [h.get("Vary"), "User-Agent"].filter(Boolean).join(", "));
   h.set("x-prerender-edge", "miss");
-  h.set("x-prerender-status", upstream ? String(upstream.status) : "599");
   return new Response(downstream.body, { status: downstream.status, headers: h });
 };
 

@@ -8,7 +8,7 @@ import { VideoLayout } from '@/components/layout/video-layout';
 import { useEffect, useState } from 'react';
 import ContextVideoPlayer from '@/components/context-video-player';
 import { cn } from '@/lib/utils';
-import { getYouTubeThumbnail } from '@/utils/getYoutubeId';
+import { cloudinaryOgFromYoutube, getYouTubeThumbnail } from '@/utils/getYoutubeId';
 
 // Utility: Format duration based on start/end
 function formatRunTime(start: number, end: number): string {
@@ -66,62 +66,64 @@ function VideoPage() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isPlayerOpen]);
 
-  // Update meta tags when video data loads
   useEffect(() => {
-    if (!video) return;
+  // We always run and always end by flipping prerenderReady.
+  (window as any).prerenderReady = false;
 
-    const thumbnailUrl = getYouTubeThumbnail(video.link);
-    if (!thumbnailUrl) return;
-
-    // Update document title
-    document.title = `${video.title} - Context`;
-
-    // Update or create Open Graph meta tags
-    const updateMetaTag = (property: string, content: string) => {
-      let meta = document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement;
-      if (!meta) {
-        meta = document.createElement('meta');
-        meta.setAttribute('property', property);
-        document.head.appendChild(meta);
-      }
-      meta.content = content;
-    };
-
-    const updateNameMetaTag = (name: string, content: string) => {
-      let meta = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement;
-      if (!meta) {
-        meta = document.createElement('meta');
-        meta.setAttribute('name', name);
-        document.head.appendChild(meta);
-      }
-      meta.content = content;
-    };
-
-    // Open Graph tags
-    updateMetaTag('og:title', video.title);
-    updateMetaTag('og:description', `Watch "${video.title}" - Context sharing made simple`);
-    updateMetaTag('og:image', thumbnailUrl);
-    updateMetaTag('og:image:secure_url', thumbnailUrl);
-    updateMetaTag('og:url', window.location.href);
-    updateMetaTag('og:type', 'video.other');
-
-    // Twitter Card tags
-    updateNameMetaTag('twitter:card', 'summary_large_image');
-    updateNameMetaTag('twitter:title', video.title);
-    updateNameMetaTag('twitter:description', `Watch "${video.title}" - Context sharing made simple`);
-    updateNameMetaTag('twitter:image', thumbnailUrl);
-
-    // Signal that the page is ready for prerendering
-    if (typeof window !== 'undefined') {
-      (window as any).prerenderReady = true;
+  const updateMetaTag = (property: string, content: string) => {
+    let meta = document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('property', property);
+      document.head.appendChild(meta);
     }
+    meta.content = content;
+  };
 
-    // Cleanup function to reset meta tags on component unmount
-    return () => {
-      document.title = 'Context';
-      // Note: We don't remove the meta tags on unmount as they should persist for sharing
-    };
-  }, [video]);
+  const updateNameMetaTag = (name: string, content: string) => {
+    let meta = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('name', name);
+      document.head.appendChild(meta);
+    }
+    meta.content = content;
+  };
+
+  const title = video?.title ?? 'Context';
+  const url = location.origin + location.pathname;
+
+  // Build Cloudinary image (falls back to site og if anything missing)
+  const cld = video ? cloudinaryOgFromYoutube({
+    cloud: 'dkrdwicst',
+    youtubeUrl: video.link,
+    title: video.title,
+  }) : null;
+
+  const image = cld ?? `${location.origin}/context_og.jpg`;
+
+  // Title + base
+  document.title = `${title} - Context`;
+  updateMetaTag('og:title', title);
+  updateMetaTag('og:description', video ? `Watch "${video.title}" - Context sharing made simple` : 'Check out what’s the context.');
+  updateMetaTag('og:type', 'video.other');
+  updateMetaTag('og:url', url);
+
+  // Image (with sizes for better previews)
+  updateMetaTag('og:image', image);
+  updateMetaTag('og:image:secure_url', image);
+  updateMetaTag('og:image:width', '1200');
+  updateMetaTag('og:image:height', '630');
+
+  updateNameMetaTag('twitter:card', 'summary_large_image');
+  updateNameMetaTag('twitter:title', title);
+  updateNameMetaTag('twitter:description', video ? `Watch "${video.title}" - Context sharing made simple` : 'Check out what’s the context.');
+  updateNameMetaTag('twitter:image', image);
+
+  (window as any).prerenderReady = true;
+
+  return () => { document.title = 'Context'; };
+}, [video]);
 
   if (!video) return null;
 

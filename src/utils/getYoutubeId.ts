@@ -100,3 +100,29 @@ export async function getBestYouTubeThumbnail(url: string): Promise<string | nul
   // Fallback to hqdefault (most reliable)
   return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 }
+
+// Cloudinary text encoder (safe for l_text)
+function cldText(t: string) {
+  // encode, then DOUBLE-encode delimiters Cloudinary parses specially
+  // (%2F -> %252F, %2C -> %252C)
+  return encodeURIComponent(t)
+    .replace(/%2F/g, '%252F') // slash
+    .replace(/%2C/g, '%252C'); // comma
+}
+
+/** Build a Cloudinary URL that fetches the YT thumbnail and overlays the title */
+export function cloudinaryOgFromYoutube(opts: { cloud: string; youtubeUrl: string; title: string }) {
+  const { cloud, youtubeUrl, title } = opts;
+  const id = getYouTubeId(youtubeUrl);
+  if (!id) return null;
+
+  const titleEnc = cldText(title);
+  return (
+    `https://res.cloudinary.com/${cloud}/image/fetch/` +
+    `w_1200,h_630,c_fill,q_auto,f_jpg/` +
+    // Optional: add your logo overlay here if you want:
+    // `l_context:logo_white,g_north_west,x_64,y_64,h_72/` +
+    `l_text:Arial_64_bold:${titleEnc},co_white,g_south_west,x_64,y_64,w_1000,c_fit/` +
+    `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+  );
+}
