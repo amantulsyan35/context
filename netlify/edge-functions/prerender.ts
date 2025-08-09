@@ -1,25 +1,21 @@
 // /netlify/edge-functions/prerender.ts
 import type { Context, Config } from "@netlify/edge-functions";
 
-// Fallback (Prerender.io) when SSR doesn't apply
+// Prerender fallback (only if SSR fails or path doesn't match)
 const PRERENDER_TOKEN = "wCbfdB9sQfa9bgx8lD80";
 // Your Cloudinary cloud
 const CLOUDINARY_CLOUD = "dkrdwicst";
 
-// Bot detection + loop guard
 const BOT_REGEX =
   /bot|crawler|spider|bingbot|duckduckbot|baiduspider|yandex|facebookexternalhit|slackbot|twitterbot|linkedinbot|whatsapp|telegrambot|discordbot/i;
 const PRERENDER_UA_REGEX = /prerender|headlesschrome|puppeteer/i;
 
-// Skip assets/APIs
 const isAssetPath = (p: string) =>
   /\.(?:js|css|png|jpe?g|gif|webp|svg|ico|json|txt|xml|map|woff2?|ttf|eot|mp4|webm|ogg)$/i.test(p);
 
-// Escape meta content
 const htmlEscape = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
-// Extract 11-char YouTube ID
 const ytId = (url: string) => {
   try {
     const short = url.match(/^https?:\/\/youtu\.be\/([A-Za-z0-9_-]{11})(?:\?|$)/i);
@@ -35,24 +31,22 @@ const ytId = (url: string) => {
   return null;
 };
 
-// Cloudinary-safe encoder for l_text (no replaceAll)
+// Cloudinary-safe text encoder (no replaceAll)
 const cldText = (t: string) =>
   encodeURIComponent(t).replace(/%2F/g, "%252F").replace(/%2C/g, "%252C");
 
-// Build Cloudinary URL: YT hqdefault + title overlay
+// Build Cloudinary URL: fetch YT hqdefault + title overlay
 const cloudinaryFromYt = (cloud: string, yt: string, title: string) =>
   `https://res.cloudinary.com/${cloud}/image/fetch/` +
   `w_1200,h_630,c_fill,q_auto,f_jpg/` +
   `l_text:Arial_64_bold:${cldText(title)},co_white,g_south_west,x_64,y_64,w_1000,c_fit/` +
   `https://i.ytimg.com/vi/${yt}/hqdefault.jpg`;
 
-// Minimal HTML with OG/Twitter tags + client redirect
 const renderOG = (opts: { title: string; canonical: string; image: string; description: string }) => {
   const t = htmlEscape(opts.title);
   const d = htmlEscape(opts.description);
   const i = htmlEscape(opts.image);
   const c = htmlEscape(opts.canonical);
-
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -83,71 +77,77 @@ export default async (request: Request, context: Context) => {
   const url = new URL(request.url);
   const ua = request.headers.get("user-agent") || "";
 
-  // Helper to always stamp our debug header when passing downstream
-  const pass = async () => {
+  // Helper: always add debug headers when passing downstream
+  const pass = async (why: string) => {
     const downstream = await context.next();
     const h = new Headers(downstream.headers);
-    h.set("x-edge-test", "on"); // <— debug, present on EVERY response
+    h.set("x-edge-test", "on");
+    h.set("x-ssr", `pass:${why}`);
     h.set("Vary", [h.get("Vary"), "User-Agent"].filter(Boolean).join(", "));
     return new Response(downstream.body, { status: downstream.status, headers: h });
   };
 
-  // Only HTML GET/HEAD; skip assets/APIs
-  if (!/^(GET|HEAD)$/i.test(request.method)) return pass();
-  if (isAssetPath(url.pathname) || url.pathname.startsWith("/api")) return pass();
+  // Skip non-HTML and assets/APIs/functions
+  if (!/^(GET|HEAD)$/i.test(request.method)) return pass("method");
+  if (isAssetPath(url.pathname)) return pass("asset");
+  if (url.pathname.startsWith("/api")) return pass("api");
+  if (url.pathname.startsWith("/.netlify/functions/")) return pass("fn"); // avoid re-entering for function calls
 
   // Only handle bots here
-  if (!BOT_REGEX.test(ua)) return pass();
-  if (PRERENDER_UA_REGEX.test(ua) || request.headers.has("X-Prerender")) return pass();
+  if (!BOT_REGEX.test(ua)) return pass("not-bot");
+  if (PRERENDER_UA_REGEX.test(ua) || request.headers.has("X-Prerender")) return pass("loop-guard");
 
-  // Match /:videoId (single segment path)
+  // Match /:videoId (single segment)
   const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
   const looksLikeVideoId = parts.length === 1 && parts[0].length > 0;
+  if (!looksLikeVideoId) return pass("no-id");
 
-  if (looksLikeVideoId) {
-    const pageId = parts[0];
-    const api = `${url.origin}/.netlify/functions/public-video?id=${encodeURIComponent(pageId)}`;
+  const pageId = parts[0];
+  const api = `${url.origin}/.netlify/functions/public-video?id=${encodeURIComponent(pageId)}`;
 
-    // Short timeout so bots aren't blocked
-    const ac = new AbortController();
-    const timeout = setTimeout(() => ac.abort(), 3500);
+  // Fetch page meta from your function (short timeout)
+  const ac = new AbortController();
+  const timeout = setTimeout(() => ac.abort(), 3500);
 
-    try {
-      const r = await fetch(api, { signal: ac.signal, headers: { accept: "application/json" } });
-      clearTimeout(timeout);
+  let funcStatus = 0;
+  try {
+    const r = await fetch(api, {
+      signal: ac.signal,
+      headers: { accept: "application/json", "x-edge-internal": "1" }, // marker for logs
+      // Note: we intentionally omit UA so this request won't be treated as a bot
+    });
+    clearTimeout(timeout);
+    funcStatus = r.status;
 
-      if (r.ok) {
-        const v = (await r.json()) as { title: string; link: string; startTime?: number; endTime?: number };
-        const ytid = ytId(v.link);
-        const image = ytid ? cloudinaryFromYt(CLOUDINARY_CLOUD, ytid, v.title) : `${url.origin}/context_og.jpg`;
+    if (r.ok) {
+      const v = (await r.json()) as { title: string; link: string; startTime?: number; endTime?: number };
+      const ytid = ytId(v.link);
+      const image = ytid ? cloudinaryFromYt(CLOUDINARY_CLOUD, ytid, v.title) : `${url.origin}/context_og.jpg`;
 
-        const html = renderOG({
-          title: v.title,
-          canonical: url.origin + url.pathname,
-          image,
-          description: `Watch "${v.title}" – Context sharing made simple.`,
-        });
+      const html = renderOG({
+        title: v.title,
+        canonical: url.origin + url.pathname,
+        image,
+        description: `Watch "${v.title}" – Context sharing made simple.`,
+      });
 
-        // SSR response (also stamp debug header)
-        const h = new Headers({
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "max-age=0, s-maxage=600",
-          "Vary": "User-Agent",
-          "x-prerender-edge": "ssr",
-          "x-image-url": image,
-          "x-video-id": ytid ?? "none",
-          "x-edge-test": "on", // debug
-        });
-        return new Response(html, { status: 200, headers: h });
-      }
-      // else fall through to Prerender below
-    } catch {
-      clearTimeout(timeout);
-      // fall through
+      const h = new Headers({
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "max-age=0, s-maxage=600",
+        "Vary": "User-Agent",
+        "x-prerender-edge": "ssr",
+        "x-image-url": image,
+        "x-video-id": ytid ?? "none",
+        "x-edge-test": "on",
+        "x-ssr": "func200",
+      });
+      return new Response(html, { status: 200, headers: h });
     }
+  } catch {
+    clearTimeout(timeout);
   }
 
-  // Fallback to Prerender.io for other routes or failures
+  // If function failed, try Prerender fallback (bots often accept this)
   const target = `https://service.prerender.io/${url.protocol}//${url.host}${url.pathname}${url.search}`;
   const ac2 = new AbortController();
   const timeout2 = setTimeout(() => ac2.abort(), 8000);
@@ -180,13 +180,14 @@ export default async (request: Request, context: Context) => {
       "Vary": "User-Agent",
       "x-prerender-edge": "hit",
       "x-prerender-status": String(upstream.status),
-      "x-edge-test": "on", // debug
+      "x-edge-test": "on",
+      "x-ssr": `prerender:${funcStatus || "no-func"}`,
     });
     return new Response(html, { status: 200, headers: h });
   }
 
-  // Last resort: let SPA handle it (with debug header)
-  return pass();
+  // Last resort: SPA
+  return pass(`spa:${funcStatus || "no-func"}`);
 };
 
 export const config: Config = { path: "/*" };
