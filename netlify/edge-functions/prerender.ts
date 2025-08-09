@@ -37,10 +37,9 @@ const cldText = (t: string) =>
   encodeURIComponent(t).replace(/%2F/g, "%252F").replace(/%2C/g, "%252C");
 
 // Build Cloudinary URL: fetch YT hqdefault + title overlay
-const cloudinaryFromYt = (cloud: string, yt: string, title: string) =>
+const cloudinaryFromYt = (cloud: string, yt: string) =>
   `https://res.cloudinary.com/${cloud}/image/fetch/` +
   `w_1200,h_630,c_fill,q_auto,f_jpg/` +
-  `l_text:Arial_64_bold:${cldText(title)},co_white,g_south_west,x_64,y_64,w_1000,c_fit/` +
   `https://i.ytimg.com/vi/${yt}/hqdefault.jpg`;
 
 const renderOG = (opts: { title: string; canonical: string; image: string; description: string }) => {
@@ -119,7 +118,8 @@ export default async (request: Request, context: Context) => {
     if (r.ok) {
       const v = (await r.json()) as { title: string; link: string; startTime?: number; endTime?: number };
       const ytid = ytId(v.link);
-      const image = ytid ? cloudinaryFromYt(CLOUDINARY_CLOUD, ytid, v.title) : `${url.origin}/context_og.jpg`;
+      const image = ytid ? cloudinaryFromYt(CLOUDINARY_CLOUD, ytid) : `${url.origin}/context_og.jpg`;
+
 
       const html = renderOG({
         title: v.title,
