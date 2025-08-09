@@ -1,6 +1,9 @@
 // /netlify/edge-functions/prerender.ts
 import type { Context, Config } from "@netlify/edge-functions";
 
+type PublicVideo = { title: string; link: string; startTime?: number; endTime?: number };
+
+
 // Prerender fallback (only if SSR fails or path doesn't match)
 const PRERENDER_TOKEN = "wCbfdB9sQfa9bgx8lD80";
 // Your Cloudinary cloud
@@ -116,14 +119,21 @@ export default async (request: Request, context: Context) => {
     funcStatus = r.status;
 
     if (r.ok) {
-      const v = (await r.json()) as { title: string; link: string; startTime?: number; endTime?: number };
+      const v: PublicVideo = await r.json()
       const ytid = ytId(v.link);
-      const image = ytid ? cloudinaryFromYt(CLOUDINARY_CLOUD, ytid) : `${url.origin}/context_og.jpg`;
+      let image: string;
+      if (ytid) {
+        const base = cloudinaryFromYt(CLOUDINARY_CLOUD, ytid); // ytid is string here
+        image = `${base}?v=${encodeURIComponent(pageId)}`;      // optional cache-buster
+      } else {
+        // Fallback if the link didn’t yield a valid 11-char YouTube ID
+        image = `${url.origin}/context_og.jpg?v=${encodeURIComponent(pageId)}`;
+      }
 
 
 
       const canonicalWithQuery = url.origin + url.pathname + url.search;
-      
+
       const html = renderOG({
         title: v.title,
         canonical: canonicalWithQuery, // keeps ?v=1
