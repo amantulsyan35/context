@@ -36,7 +36,7 @@ const ytId = (url: string) => {
 const cldText = (t: string) =>
   encodeURIComponent(t).replace(/%2F/g, "%252F").replace(/%2C/g, "%252C");
 
-// Build Cloudinary URL: fetch YT hqdefault + title overlay
+// Build Cloudinary URL: fetch YT hqdefault (no overlay)
 const cloudinaryFromYt = (cloud: string, yt: string) =>
   `https://res.cloudinary.com/${cloud}/image/fetch/` +
   `w_1200,h_630,c_fill,q_auto,f_jpg/` +
@@ -121,9 +121,12 @@ export default async (request: Request, context: Context) => {
       const image = ytid ? cloudinaryFromYt(CLOUDINARY_CLOUD, ytid) : `${url.origin}/context_og.jpg`;
 
 
+
+      const canonicalWithQuery = url.origin + url.pathname + url.search;
+      
       const html = renderOG({
         title: v.title,
-        canonical: url.origin + url.pathname,
+        canonical: canonicalWithQuery, // keeps ?v=1
         image,
         description: `Watch "${v.title}" – Context sharing made simple.`,
       });
