@@ -67,63 +67,93 @@ function VideoPage() {
   }, [isPlayerOpen]);
 
   useEffect(() => {
-  // We always run and always end by flipping prerenderReady.
-  (window as any).prerenderReady = false;
+    // Always start not-ready; flip true only after we set tags
+    (window as any).prerenderReady = false;
+    let cancelled = false;
 
-  const updateMetaTag = (property: string, content: string) => {
-    let meta = document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement | null;
-    if (!meta) {
-      meta = document.createElement('meta');
-      meta.setAttribute('property', property);
-      document.head.appendChild(meta);
+    const updateMetaTag = (property: string, content: string) => {
+      let meta = document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement | null;
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('property', property);
+        document.head.appendChild(meta);
+      }
+      meta.content = content;
+    };
+
+    const updateNameMetaTag = (name: string, content: string) => {
+      let meta = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('name', name);
+        document.head.appendChild(meta);
+      }
+      meta.content = content;
+    };
+
+    async function resolveMeta() {
+      // 1) Try the already-fetched video from Convex
+      let title = video?.title;
+      let link = video?.link;
+
+      // 2) If not available yet, fetch the minimal public data by PAGE ID
+      if (!title || !link) {
+        try {
+          const id = videoId; // from useParams
+          const r = await fetch(`/.netlify/functions/public-video?id=${encodeURIComponent(id)}`, {
+            headers: { accept: 'application/json' },
+          });
+          if (r.ok) {
+            const v = await r.json();
+            title = v.title || title;
+            link = v.link || link;
+          }
+        } catch {
+          // ignore; we'll fall back to site OG
+        }
+      }
+
+      // 3) Build Cloudinary URL from YouTube link + title
+      const cldUrl = (title && link)
+        ? cloudinaryOgFromYoutube('dkrdwicst', link, title)
+        : null;
+
+      const finalTitle = title ?? 'Context';
+      const finalDesc = title ? `Watch "${finalTitle}" - Context sharing made simple` : `Check out what's the context.`;
+      const finalImage = cldUrl ?? `${location.origin}/context_og.jpg`;
+      const canonical = location.origin + location.pathname;
+
+      if (cancelled) return;
+
+      // 4) Set all tags (absolute URLs)
+      document.title = `${finalTitle} - Context`;
+
+      updateMetaTag('og:title', finalTitle);
+      updateMetaTag('og:description', finalDesc);
+      updateMetaTag('og:type', 'video.other');
+      updateMetaTag('og:url', canonical);
+      updateMetaTag('og:image', finalImage);
+      updateMetaTag('og:image:secure_url', finalImage);
+      updateMetaTag('og:image:width', '1200');
+      updateMetaTag('og:image:height', '630');
+
+      updateNameMetaTag('twitter:card', 'summary_large_image');
+      updateNameMetaTag('twitter:title', finalTitle);
+      updateNameMetaTag('twitter:description', finalDesc);
+      updateNameMetaTag('twitter:image', finalImage);
+
+      // 5) Signal Prerender that the page is ready to snapshot
+      (window as any).prerenderReady = true;
     }
-    meta.content = content;
-  };
 
-  const updateNameMetaTag = (name: string, content: string) => {
-    let meta = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
-    if (!meta) {
-      meta = document.createElement('meta');
-      meta.setAttribute('name', name);
-      document.head.appendChild(meta);
-    }
-    meta.content = content;
-  };
+    resolveMeta();
 
-  const title = video?.title ?? 'Context';
-  const url = location.origin + location.pathname;
+    return () => {
+      cancelled = true;
+      document.title = 'Context';
+    };
+  }, [videoId, video]);
 
-  // Build Cloudinary image (falls back to site og if anything missing)
-  const cld = video ? cloudinaryOgFromYoutube({
-    cloud: 'dkrdwicst',
-    youtubeUrl: video.link,
-    title: video.title,
-  }) : null;
-
-  const image = cld ?? `${location.origin}/context_og.jpg`;
-
-  // Title + base
-  document.title = `${title} - Context`;
-  updateMetaTag('og:title', title);
-  updateMetaTag('og:description', video ? `Watch "${video.title}" - Context sharing made simple` : 'Check out what’s the context.');
-  updateMetaTag('og:type', 'video.other');
-  updateMetaTag('og:url', url);
-
-  // Image (with sizes for better previews)
-  updateMetaTag('og:image', image);
-  updateMetaTag('og:image:secure_url', image);
-  updateMetaTag('og:image:width', '1200');
-  updateMetaTag('og:image:height', '630');
-
-  updateNameMetaTag('twitter:card', 'summary_large_image');
-  updateNameMetaTag('twitter:title', title);
-  updateNameMetaTag('twitter:description', video ? `Watch "${video.title}" - Context sharing made simple` : 'Check out what’s the context.');
-  updateNameMetaTag('twitter:image', image);
-
-  (window as any).prerenderReady = true;
-
-  return () => { document.title = 'Context'; };
-}, [video]);
 
   if (!video) return null;
 
