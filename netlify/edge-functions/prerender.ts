@@ -8,6 +8,7 @@ const CLOUDINARY_CLOUD = "dkrdwicst";
 
 const BOT_REGEX =
   /bot|crawler|spider|bingbot|duckduckbot|baiduspider|yandex|facebookexternalhit|slackbot|twitterbot|linkedinbot|whatsapp|telegrambot|discordbot/i;
+// UA-only loop guard (don't use X-Prerender header — Netlify may set it)
 const PRERENDER_UA_REGEX = /prerender|headlesschrome|puppeteer/i;
 
 const isAssetPath = (p: string) =>
@@ -91,11 +92,11 @@ export default async (request: Request, context: Context) => {
   if (!/^(GET|HEAD)$/i.test(request.method)) return pass("method");
   if (isAssetPath(url.pathname)) return pass("asset");
   if (url.pathname.startsWith("/api")) return pass("api");
-  if (url.pathname.startsWith("/.netlify/functions/")) return pass("fn"); // avoid re-entering for function calls
+  if (url.pathname.startsWith("/.netlify/functions/")) return pass("fn");
 
-  // Only handle bots here
+  // Only handle bots; UA-only loop guard
   if (!BOT_REGEX.test(ua)) return pass("not-bot");
-  if (PRERENDER_UA_REGEX.test(ua) || request.headers.has("X-Prerender")) return pass("loop-guard");
+  if (PRERENDER_UA_REGEX.test(ua)) return pass("loop-guard-ua");
 
   // Match /:videoId (single segment)
   const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
@@ -111,11 +112,7 @@ export default async (request: Request, context: Context) => {
 
   let funcStatus = 0;
   try {
-    const r = await fetch(api, {
-      signal: ac.signal,
-      headers: { accept: "application/json", "x-edge-internal": "1" }, // marker for logs
-      // Note: we intentionally omit UA so this request won't be treated as a bot
-    });
+    const r = await fetch(api, { signal: ac.signal, headers: { accept: "application/json" } });
     clearTimeout(timeout);
     funcStatus = r.status;
 
@@ -147,7 +144,7 @@ export default async (request: Request, context: Context) => {
     clearTimeout(timeout);
   }
 
-  // If function failed, try Prerender fallback (bots often accept this)
+  // Fallback to Prerender.io
   const target = `https://service.prerender.io/${url.protocol}//${url.host}${url.pathname}${url.search}`;
   const ac2 = new AbortController();
   const timeout2 = setTimeout(() => ac2.abort(), 8000);
