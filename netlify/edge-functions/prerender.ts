@@ -1,15 +1,14 @@
 // /netlify/edge-functions/prerender.ts
 import type { Context, Config } from "@netlify/edge-functions";
 
-// Fallback for non-matching paths (Prerender.io)
+// Fallback (Prerender.io) when SSR doesn't apply
 const PRERENDER_TOKEN = "wCbfdB9sQfa9bgx8lD80";
-// Your Cloudinary cloud name
+// Your Cloudinary cloud
 const CLOUDINARY_CLOUD = "dkrdwicst";
 
-// Bot detection
+// Bot detection + loop guard
 const BOT_REGEX =
   /bot|crawler|spider|bingbot|duckduckbot|baiduspider|yandex|facebookexternalhit|slackbot|twitterbot|linkedinbot|whatsapp|telegrambot|discordbot/i;
-// Loop guard if Prerender (or headless) re-fetches your site
 const PRERENDER_UA_REGEX = /prerender|headlesschrome|puppeteer/i;
 
 // Skip assets/APIs
@@ -20,15 +19,13 @@ const isAssetPath = (p: string) =>
 const htmlEscape = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
-// Extract 11-char YouTube ID from various URL shapes
+// Extract 11-char YouTube ID
 const ytId = (url: string) => {
   try {
     const short = url.match(/^https?:\/\/youtu\.be\/([A-Za-z0-9_-]{11})(?:\?|$)/i);
     if (short) return short[1];
-
     const embed = url.match(/youtube(?:-nocookie)?\.com\/embed\/([A-Za-z0-9_-]{11})(?:\?|$)/i);
     if (embed) return embed[1];
-
     const u = new URL(url);
     if (u.hostname.includes("youtube.com") || u.hostname.includes("youtube-nocookie.com")) {
       const v = u.searchParams.get("v");
@@ -42,7 +39,7 @@ const ytId = (url: string) => {
 const cldText = (t: string) =>
   encodeURIComponent(t).replace(/%2F/g, "%252F").replace(/%2C/g, "%252C");
 
-// Cloudinary URL: fetch YT hqdefault + overlay title
+// Build Cloudinary URL: YT hqdefault + title overlay
 const cloudinaryFromYt = (cloud: string, yt: string, title: string) =>
   `https://res.cloudinary.com/${cloud}/image/fetch/` +
   `w_1200,h_630,c_fill,q_auto,f_jpg/` +
@@ -86,15 +83,24 @@ export default async (request: Request, context: Context) => {
   const url = new URL(request.url);
   const ua = request.headers.get("user-agent") || "";
 
+  // Helper to always stamp our debug header when passing downstream
+  const pass = async () => {
+    const downstream = await context.next();
+    const h = new Headers(downstream.headers);
+    h.set("x-edge-test", "on"); // <— debug, present on EVERY response
+    h.set("Vary", [h.get("Vary"), "User-Agent"].filter(Boolean).join(", "));
+    return new Response(downstream.body, { status: downstream.status, headers: h });
+  };
+
   // Only HTML GET/HEAD; skip assets/APIs
-  if (!/^(GET|HEAD)$/i.test(request.method)) return context.next();
-  if (isAssetPath(url.pathname) || url.pathname.startsWith("/api")) return context.next();
+  if (!/^(GET|HEAD)$/i.test(request.method)) return pass();
+  if (isAssetPath(url.pathname) || url.pathname.startsWith("/api")) return pass();
 
   // Only handle bots here
-  if (!BOT_REGEX.test(ua)) return context.next();
-  if (PRERENDER_UA_REGEX.test(ua) || request.headers.has("X-Prerender")) return context.next();
+  if (!BOT_REGEX.test(ua)) return pass();
+  if (PRERENDER_UA_REGEX.test(ua) || request.headers.has("X-Prerender")) return pass();
 
-  // Match /:videoId (single segment path under root)
+  // Match /:videoId (single segment path)
   const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
   const looksLikeVideoId = parts.length === 1 && parts[0].length > 0;
 
@@ -122,26 +128,26 @@ export default async (request: Request, context: Context) => {
           description: `Watch "${v.title}" – Context sharing made simple.`,
         });
 
-        return new Response(html, {
-          status: 200,
-          headers: {
-            "Content-Type": "text/html; charset=utf-8",
-            "Cache-Control": "max-age=0, s-maxage=600",
-            "Vary": "User-Agent",
-            "x-prerender-edge": "ssr",
-            "x-video-id": ytid ?? "none",
-            "x-image-url": image,
-          },
+        // SSR response (also stamp debug header)
+        const h = new Headers({
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "max-age=0, s-maxage=600",
+          "Vary": "User-Agent",
+          "x-prerender-edge": "ssr",
+          "x-image-url": image,
+          "x-video-id": ytid ?? "none",
+          "x-edge-test": "on", // debug
         });
+        return new Response(html, { status: 200, headers: h });
       }
-      // fall through if 404/500
+      // else fall through to Prerender below
     } catch {
       clearTimeout(timeout);
       // fall through
     }
   }
 
-  // Fallback: proxy to Prerender.io (other routes or failures)
+  // Fallback to Prerender.io for other routes or failures
   const target = `https://service.prerender.io/${url.protocol}//${url.host}${url.pathname}${url.search}`;
   const ac2 = new AbortController();
   const timeout2 = setTimeout(() => ac2.abort(), 8000);
@@ -168,24 +174,19 @@ export default async (request: Request, context: Context) => {
 
   if (upstream?.ok) {
     const html = await upstream.text();
-    return new Response(html, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "max-age=0, s-maxage=600",
-        "Vary": "User-Agent",
-        "x-prerender-edge": "hit",
-        "x-prerender-status": String(upstream.status),
-      },
+    const h = new Headers({
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "max-age=0, s-maxage=600",
+      "Vary": "User-Agent",
+      "x-prerender-edge": "hit",
+      "x-prerender-status": String(upstream.status),
+      "x-edge-test": "on", // debug
     });
+    return new Response(html, { status: 200, headers: h });
   }
 
-  // Last resort: let SPA handle it, keep debug headers
-  const downstream = await context.next();
-  const h = new Headers(downstream.headers);
-  h.set("Vary", [h.get("Vary"), "User-Agent"].filter(Boolean).join(", "));
-  h.set("x-prerender-edge", "miss");
-  return new Response(downstream.body, { status: downstream.status, headers: h });
+  // Last resort: let SPA handle it (with debug header)
+  return pass();
 };
 
 export const config: Config = { path: "/*" };
